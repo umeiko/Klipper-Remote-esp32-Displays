@@ -1,0 +1,74 @@
+#include "titlebar.h"
+#include "theme.h"
+#include "panel_mgr.h"
+#include "mock_printer.h"
+#include "bsp_wifi.h"
+
+static lv_obj_t *bar;
+static lv_obj_t *btn_back;
+static lv_obj_t *lbl_title;
+static lv_obj_t *lbl_wifi;
+static lv_obj_t *lbl_ext;
+static lv_obj_t *lbl_bed;
+
+static void back_cb(lv_event_t *e)
+{
+    LV_UNUSED(e);
+    panel_mgr_back();
+}
+
+void titlebar_init(void)
+{
+    lv_obj_t *top = lv_layer_top();
+
+    bar = lv_obj_create(top);
+    lv_obj_remove_style_all(bar);
+    lv_obj_set_size(bar, 320, THEME_TITLEBAR_H);
+    lv_obj_set_style_bg_color(bar, theme_col(THEME_COL_SURFACE), 0);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_hor(bar, 6, 0);
+    lv_obj_align(bar, LV_ALIGN_TOP_MID, 0, 0);
+
+    btn_back = theme_button(bar, LV_SYMBOL_LEFT, NULL, 0);
+    lv_obj_set_size(btn_back, 40, THEME_TITLEBAR_H - 6);
+    lv_obj_align(btn_back, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_add_event_cb(btn_back, back_cb, LV_EVENT_CLICKED, NULL);
+
+    /* WiFi 连接状态小图标（左侧，返回键之后） */
+    bsp_wifi_init();   /* 幂等；提前把后端 WiFi 轮询拉起来 */
+    lbl_wifi = theme_label(bar, LV_SYMBOL_WIFI, THEME_FONT_ICON, THEME_COL_TEXT_DIM);
+    lv_obj_align(lbl_wifi, LV_ALIGN_LEFT_MID, 46, 0);
+
+    lbl_title = theme_label(bar, "", THEME_FONT_M, THEME_COL_TEXT);
+    lv_obj_align(lbl_title, LV_ALIGN_LEFT_MID, 72, 0);
+
+    /* 右侧：喷嘴/热床实时温度 */
+    lbl_bed = theme_label(bar, "", THEME_FONT_S, THEME_COL_BED);
+    lv_obj_align(lbl_bed, LV_ALIGN_RIGHT_MID, 0, 0);
+    lbl_ext = theme_label(bar, "", THEME_FONT_S, THEME_COL_EXTRUDER);
+    lv_obj_align(lbl_ext, LV_ALIGN_RIGHT_MID, -64, 0);
+
+    titlebar_tick();
+}
+
+void titlebar_set(const char *title, int show_back)
+{
+    lv_label_set_text(lbl_title, title);
+    if (show_back) lv_obj_remove_flag(btn_back, LV_OBJ_FLAG_HIDDEN);
+    else           lv_obj_add_flag(btn_back, LV_OBJ_FLAG_HIDDEN);
+    /* 无返回键时整体左移 */
+    lv_obj_align(lbl_wifi, LV_ALIGN_LEFT_MID, show_back ? 46 : 8, 0);
+    lv_obj_align(lbl_title, LV_ALIGN_LEFT_MID, show_back ? 72 : 32, 0);
+}
+
+void titlebar_tick(void)
+{
+    lv_label_set_text_fmt(lbl_ext, "%d" "\xC2\xB0", (int)(mock_temp_ext() + 0.5f));
+    lv_label_set_text_fmt(lbl_bed, "%d" "\xC2\xB0", (int)(mock_temp_bed() + 0.5f));
+
+    /* 连接中=橙，已连接=绿，未连接=灰 */
+    uint32_t col = THEME_COL_TEXT_DIM;
+    if (bsp_wifi_status() == BSP_WIFI_CONNECTING) col = THEME_COL_WARN;
+    else if (bsp_wifi_connected())                col = THEME_COL_OK;
+    lv_obj_set_style_text_color(lbl_wifi, theme_col(col), 0);
+}

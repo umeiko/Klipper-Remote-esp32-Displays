@@ -1,0 +1,26 @@
+# ESP-IDF / 各 port 构建产物
+src/ports/*/build*/
+src/ports/esp32/sdkconfig
+src/ports/esp32/sdkconfig.old
+src/ports/esp32/managed_components/
+src/ports/esp32/dependencies.lock
+
+# 根目录早期构建残留（真实工程在 src/ports/esp32）
+/managed_components/
+/sdkconfig
+/dependencies.lock
+
+# 截图产物
+*.bmp
+*.png
+!docs/**/*.png
+
+# 第三方与工具链（不入库，按文档拉取）
+third_party/lvgl/
+.reff/
+tools/dl/
+tools/msys64/
+tools/fontgen/node_modules/
+
+# 临时
+tmp/
