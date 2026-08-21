@@ -5,6 +5,7 @@
 #include "../theme.h"
 #include "../ui_anim.h"
 #include "../panel_mgr.h"
+#include "../assets/icons.h"
 #include "bsp_wifi.h"
 #include <string.h>
 #include <stdio.h>
@@ -160,13 +161,14 @@ static void add_ap_row(int idx)
     lv_obj_set_width(ssid, 190);
     lv_label_set_long_mode(ssid, LV_LABEL_LONG_SCROLL_CIRCULAR);
 
-    /* 右侧：加密/开放 + 信号强度图标（颜色分档） */
+    /* 右侧：加密/开放 + 信号强度四档图标 */
     lv_obj_t *sec = theme_label(row, ap->secure ? "加密" : "开放", THEME_FONT_S, THEME_COL_TEXT_DIM);
     lv_obj_align(sec, LV_ALIGN_RIGHT_MID, -34, 0);
 
-    uint32_t col = ap->rssi > -55 ? THEME_COL_OK :
-                   ap->rssi > -70 ? THEME_COL_WARN : THEME_COL_ERROR;
-    lv_obj_t *sig = theme_label(row, LV_SYMBOL_WIFI, THEME_FONT_ICON, col);
+    const lv_image_dsc_t *ic = ap->rssi > -55 ? &img_wifi_4 :
+                               ap->rssi > -62 ? &img_wifi_3 :
+                               ap->rssi > -72 ? &img_wifi_2 : &img_wifi_1;
+    lv_obj_t *sig = theme_img(row, ic, THEME_COL_TEXT);
     lv_obj_align(sig, LV_ALIGN_RIGHT_MID, -6, 0);
 }
 

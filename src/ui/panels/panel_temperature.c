@@ -6,6 +6,7 @@
 #include "../panel_mgr.h"
 #include "../mock_printer.h"
 #include "../widgets/keypad.h"
+#include "../assets/icons.h"
 #include <stdio.h>
 
 static lv_obj_t *lbl_ext_cur, *lbl_ext_tgt;
@@ -45,23 +46,19 @@ static void on_preset(lv_event_t *e)
 }
 
 static lv_obj_t *make_row(lv_obj_t *parent, const char *name, uint32_t col,
+                          const lv_image_dsc_t *icon,
                           lv_obj_t **cur_out, lv_obj_t **tgt_out, lv_event_cb_t cb)
 {
     lv_obj_t *row = theme_card(parent);
-    lv_obj_set_size(row, 304, 52);
+    lv_obj_set_size(row, 304, 56);
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(row, cb, LV_EVENT_CLICKED, NULL);
 
-    lv_obj_t *dot = lv_obj_create(row);
-    lv_obj_remove_style_all(dot);
-    lv_obj_set_size(dot, 10, 10);
-    lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(dot, theme_col(col), 0);
-    lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-    lv_obj_align(dot, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_t *ic = theme_img(row, icon, col);
+    lv_obj_align(ic, LV_ALIGN_LEFT_MID, 4, 0);
 
     lv_obj_t *name_lbl = theme_label(row, name, THEME_FONT_M, THEME_COL_TEXT);
-    lv_obj_align(name_lbl, LV_ALIGN_LEFT_MID, 18, 0);
+    lv_obj_align(name_lbl, LV_ALIGN_LEFT_MID, 44, 0);
 
     lv_obj_t *cur = theme_label(row, "--", THEME_FONT_L, col);
     lv_obj_align(cur, LV_ALIGN_RIGHT_MID, -58, 0);
@@ -97,11 +94,13 @@ static lv_obj_t *create(void)
     lv_obj_t *scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr, theme_col(THEME_COL_BG), 0);
 
-    lv_obj_t *row_ext = make_row(scr, "Extruder", THEME_COL_EXTRUDER, &lbl_ext_cur, &lbl_ext_tgt, on_row_ext);
+    lv_obj_t *row_ext = make_row(scr, "Extruder", THEME_COL_EXTRUDER, &img_nozzle_32,
+                                 &lbl_ext_cur, &lbl_ext_tgt, on_row_ext);
     lv_obj_align(row_ext, LV_ALIGN_TOP_MID, 0, THEME_TITLEBAR_H + 6);
 
-    lv_obj_t *row_bed = make_row(scr, "Heatbed", THEME_COL_BED, &lbl_bed_cur, &lbl_bed_tgt, on_row_bed);
-    lv_obj_align(row_bed, LV_ALIGN_TOP_MID, 0, THEME_TITLEBAR_H + 64);
+    lv_obj_t *row_bed = make_row(scr, "Heatbed", THEME_COL_BED, &img_bed_32,
+                                 &lbl_bed_cur, &lbl_bed_tgt, on_row_bed);
+    lv_obj_align(row_bed, LV_ALIGN_TOP_MID, 0, THEME_TITLEBAR_H + 68);
 
     /* 预设行 */
     static const char *names[] = {"PLA", "PETG", "ABS", "冷却"};

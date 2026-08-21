@@ -1,5 +1,6 @@
 #include "titlebar.h"
 #include "theme.h"
+#include "assets/icons.h"
 #include "panel_mgr.h"
 #include "mock_printer.h"
 #include "bsp_wifi.h"
@@ -42,11 +43,15 @@ void titlebar_init(void)
     lbl_title = theme_label(bar, "", THEME_FONT_M, THEME_COL_TEXT);
     lv_obj_align(lbl_title, LV_ALIGN_LEFT_MID, 72, 0);
 
-    /* 右侧：喷嘴/热床实时温度 */
+    /* 右侧：喷嘴/热床实时温度（小图标 + 数值） */
     lbl_bed = theme_label(bar, "", THEME_FONT_S, THEME_COL_BED);
-    lv_obj_align(lbl_bed, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_align(lbl_bed, LV_ALIGN_RIGHT_MID, -2, 0);
+    lv_obj_t *ic_bed = theme_img(bar, &img_bed_16, THEME_COL_BED);
+    lv_obj_align(ic_bed, LV_ALIGN_RIGHT_MID, -34, 0);
     lbl_ext = theme_label(bar, "", THEME_FONT_S, THEME_COL_EXTRUDER);
-    lv_obj_align(lbl_ext, LV_ALIGN_RIGHT_MID, -64, 0);
+    lv_obj_align(lbl_ext, LV_ALIGN_RIGHT_MID, -70, 0);
+    lv_obj_t *ic_ext = theme_img(bar, &img_nozzle_16, THEME_COL_EXTRUDER);
+    lv_obj_align(ic_ext, LV_ALIGN_RIGHT_MID, -102, 0);
 
     titlebar_tick();
 }

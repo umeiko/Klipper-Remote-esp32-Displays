@@ -54,6 +54,12 @@ lv_obj_t *theme_menu_button(lv_obj_t *parent, const char *icon, const char *text
 /* 文本标签 */
 lv_obj_t *theme_label(lv_obj_t *parent, const char *text, const lv_font_t *font, uint32_t col_hex);
 
+/* A8 图片图标（assets/icons.h），recolor 着色 */
+lv_obj_t *theme_img(lv_obj_t *parent, const lv_image_dsc_t *src, uint32_t col_hex);
+
+/* 图标按钮卡片（主菜单用）：A8 图片图标在上，文字在下 */
+lv_obj_t *theme_menu_button_img(lv_obj_t *parent, const lv_image_dsc_t *icon, const char *text);
+
 /* 浮点格式化（避免 %f：内置 lv_snprintf 不支持，newlib-nano 也会因此膨胀）
  * decimals 仅支持 0 或 1。例: theme_fmt_float(buf, n, 24.56f, 1) -> "24.6" */
 void theme_fmt_float(char *buf, size_t n, float v, int decimals);

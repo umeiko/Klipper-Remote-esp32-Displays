@@ -69,6 +69,20 @@ python tools/fontgen/gen_fonts.py        # 默认用 C:/Windows/Fonts/simhei.ttf
 
 新增中文后不重跑就会出现方框（□）。生成后需重新编译对应后端。
 
+## 图标（assets/icons.h）
+
+界面图标来自 KlipperScreen 的 material-dark 主题（GPL-3.0），SVG 原件在 `src/ui/assets/svg/`，
+经 resvg 渲染 + LVGLImage.py 转成 A8 alpha 图（体积小，运行时用 `theme_img()` 的 recolor 任意着色）：
+
+```bash
+# 首次：装依赖（Node 端 resvg + Python 端 pypng/lz4）
+cd tools/icongen && npm install --registry=https://registry.npmmirror.com
+python -m venv .venv && .venv/Scripts/python -m pip install pypng lz4
+cd ../..
+# 新增/替换 SVG 后重新生成：
+node tools/icongen/gen_icons.mjs
+```
+
 ## WiFi 配置
 
 设置 → 无线网络：扫描 → 选 AP → 输密码 → 连接（转圈）→ toast 反馈。

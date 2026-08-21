@@ -2,6 +2,7 @@
  * 主菜单：状态卡片 + 功能网格 + 急停/重启（对标 KlipperScreen main_menu）
  */
 #include "../theme.h"
+#include "../assets/icons.h"
 #include "../panel_mgr.h"
 #include "../ui_anim.h"
 #include "../mock_printer.h"
@@ -97,14 +98,14 @@ static lv_obj_t *create(void)
     lbl_file = theme_label(card_status, "", THEME_FONT_S, THEME_COL_TEXT_DIM);
     lv_obj_align(lbl_file, LV_ALIGN_RIGHT_MID, -4, 0);
 
-    /* 功能网格 3x2 */
-    static const struct { const char *icon, *text, *panel; } items[] = {
-        {"°C",                 "温度",   "temperature"},
-        {LV_SYMBOL_GPS,        "移动",   "move"},
-        {LV_SYMBOL_EJECT,      "挤出",   "extrude"},
-        {LV_SYMBOL_SD_CARD,    "文件",   "files"},
-        {LV_SYMBOL_PLAY,       "打印",   "job_status"},
-        {LV_SYMBOL_SETTINGS,   "设置",   "settings"},
+    /* 功能网格 3x2（KlipperScreen material-dark 图标） */
+    static const struct { const lv_image_dsc_t *icon; const char *text, *panel; } items[] = {
+        {&img_heater,   "温度", "temperature"},
+        {&img_move,     "移动", "move"},
+        {&img_extrude,  "挤出", "extrude"},
+        {&img_files,    "文件", "files"},
+        {&img_printer,  "打印", "job_status"},
+        {&img_settings, "设置", "settings"},
     };
     lv_obj_t *grid = lv_obj_create(scr);
     lv_obj_remove_style_all(grid);
@@ -116,7 +117,7 @@ static lv_obj_t *create(void)
     lv_obj_set_style_pad_column(grid, THEME_GAP, 0);
 
     for (unsigned i = 0; i < sizeof(items) / sizeof(items[0]); i++) {
-        lv_obj_t *b = theme_menu_button(grid, items[i].icon, items[i].text);
+        lv_obj_t *b = theme_menu_button_img(grid, items[i].icon, items[i].text);
         lv_obj_set_size(b, 96, 59);
         lv_obj_add_event_cb(b, on_menu, LV_EVENT_CLICKED, (void *)items[i].panel);
     }

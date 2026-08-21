@@ -93,3 +93,30 @@ lv_obj_t *theme_label(lv_obj_t *parent, const char *text, const lv_font_t *font,
     lv_obj_set_style_text_color(lbl, theme_col(col_hex), 0);
     return lbl;
 }
+
+lv_obj_t *theme_img(lv_obj_t *parent, const lv_image_dsc_t *src, uint32_t col_hex)
+{
+    lv_obj_t *img = lv_image_create(parent);
+    lv_image_set_src(img, src);
+    /* A8 只有 alpha 通道，靠 recolor 上色 */
+    lv_obj_set_style_image_recolor(img, theme_col(col_hex), 0);
+    lv_obj_set_style_image_recolor_opa(img, LV_OPA_COVER, 0);
+    return img;
+}
+
+lv_obj_t *theme_menu_button_img(lv_obj_t *parent, const lv_image_dsc_t *icon, const char *text)
+{
+    lv_obj_t *btn = theme_button(parent, NULL, NULL, 0);
+    lv_obj_set_style_bg_color(btn, theme_col(THEME_COL_SURFACE), 0);
+    lv_obj_set_flex_flow(btn, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(btn, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(btn, 4, 0);
+
+    theme_img(btn, icon, THEME_COL_ACCENT);
+
+    lv_obj_t *lbl = lv_label_create(btn);
+    lv_label_set_text(lbl, text);
+    lv_obj_set_style_text_font(lbl, THEME_FONT_S, 0);
+    lv_obj_set_style_text_color(lbl, theme_col(THEME_COL_TEXT), 0);
+    return btn;
+}
