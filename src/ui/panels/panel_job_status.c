@@ -4,7 +4,7 @@
 #include "../theme.h"
 #include "../ui_anim.h"
 #include "../panel_mgr.h"
-#include "../mock_printer.h"
+#include "printer.h"
 #include "../widgets/confirm.h"
 #include <stdio.h>
 
@@ -31,23 +31,23 @@ static void fmt_time(char *buf, size_t n, uint32_t s)
 
 static void update_ui(void)
 {
-    mock_state_t s = mock_state();
-    lv_label_set_text(lbl_file, mock_filename()[0] ? mock_filename() : "空闲");
+    printer_state_t s = printer_state();
+    lv_label_set_text(lbl_file, printer_filename()[0] ? printer_filename() : "空闲");
 
     char t1[16], t2[16], buf[48];
-    fmt_time(t1, sizeof(t1), mock_print_elapsed_s());
-    fmt_time(t2, sizeof(t2), mock_print_eta_s());
-    snprintf(buf, sizeof(buf), "已用 %s\n剩余 %s", t1, s == MOCK_STATE_PRINTING ? t2 : "--:--:--");
+    fmt_time(t1, sizeof(t1), printer_print_elapsed_s());
+    fmt_time(t2, sizeof(t2), printer_print_eta_s());
+    snprintf(buf, sizeof(buf), "已用 %s\n剩余 %s", t1, s == PRINTER_STATE_PRINTING ? t2 : "--:--:--");
     lv_label_set_text(lbl_time, buf);
 
-    int32_t target = mock_progress_permille();
+    int32_t target = printer_progress_permille();
     if (target != cur_shown_pct10) {
         ui_anim_to(arc, arc_anim_cb, cur_shown_pct10, target, UI_ANIM_SLOW, lv_anim_path_ease_out);
         cur_shown_pct10 = target;
     }
 
-    int printing = (s == MOCK_STATE_PRINTING);
-    int paused = (s == MOCK_STATE_PAUSED);
+    int printing = (s == PRINTER_STATE_PRINTING);
+    int paused = (s == PRINTER_STATE_PAUSED);
     lv_label_set_text(lbl_pause_icon, paused ? LV_SYMBOL_PLAY : LV_SYMBOL_PAUSE);
     lv_label_set_text(lbl_pause_text, paused ? "继续" : "暂停");
     if (printing || paused) {
@@ -62,15 +62,15 @@ static void update_ui(void)
 static void on_pause(lv_event_t *e)
 {
     LV_UNUSED(e);
-    if (mock_state() == MOCK_STATE_PRINTING) mock_print_pause();
-    else                                     mock_print_resume();
+    if (printer_state() == PRINTER_STATE_PRINTING) printer_print_pause();
+    else                                     printer_print_resume();
     update_ui();
 }
 
 static void on_cancel(lv_event_t *e)
 {
     LV_UNUSED(e);
-    mock_print_cancel();
+    printer_print_cancel();
     ui_toast("已取消打印", THEME_COL_WARN);
     panel_mgr_back();
 }
@@ -78,7 +78,7 @@ static void on_cancel(lv_event_t *e)
 static void do_estop(void *ud)
 {
     LV_UNUSED(ud);
-    mock_emergency_stop();   /* 真实实现：Moonraker printer.emergency_stop */
+    printer_emergency_stop();   /* 真实实现：Moonraker printer.emergency_stop */
     ui_toast("已急停（M112）", THEME_COL_ERROR);
 }
 

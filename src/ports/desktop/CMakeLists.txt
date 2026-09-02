@@ -26,12 +26,17 @@ add_executable(klipper_remote_desktop
     ${SRC_ROOT}/bsp/desktop/bsp_sdl2.c
     ${SRC_ROOT}/bsp/desktop/bsp_wifi_windows.c
     ${SRC_ROOT}/bsp/desktop/bsp_wifi_linux.c
+    ${SRC_ROOT}/bsp/desktop/bsp_conf_file.c
+    ${SRC_ROOT}/core/app_settings.c
+    ${SRC_ROOT}/core/printer_mock.c
+    ${SRC_ROOT}/core/moonraker_client_stub.c
     ${UI_SRCS}
 )
 
 target_include_directories(klipper_remote_desktop PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${SRC_ROOT}/bsp
+    ${SRC_ROOT}/core
     ${SRC_ROOT}/ui
     ${SRC_ROOT}/ui/panels
     ${SRC_ROOT}/ui/widgets

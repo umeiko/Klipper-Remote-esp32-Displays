@@ -2,7 +2,7 @@
 #include "theme.h"
 #include "assets/icons.h"
 #include "panel_mgr.h"
-#include "mock_printer.h"
+#include "printer.h"
 #include "bsp_wifi.h"
 
 static lv_obj_t *bar;
@@ -68,8 +68,8 @@ void titlebar_set(const char *title, int show_back)
 
 void titlebar_tick(void)
 {
-    lv_label_set_text_fmt(lbl_ext, "%d" "\xC2\xB0", (int)(mock_temp_ext() + 0.5f));
-    lv_label_set_text_fmt(lbl_bed, "%d" "\xC2\xB0", (int)(mock_temp_bed() + 0.5f));
+    lv_label_set_text_fmt(lbl_ext, "%d" "\xC2\xB0", (int)(printer_temp_ext() + 0.5f));
+    lv_label_set_text_fmt(lbl_bed, "%d" "\xC2\xB0", (int)(printer_temp_bed() + 0.5f));
 
     /* 连接中=橙，已连接=绿，未连接=灰 */
     uint32_t col = THEME_COL_TEXT_DIM;

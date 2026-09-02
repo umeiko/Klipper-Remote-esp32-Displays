@@ -4,6 +4,10 @@
  */
 #include "bsp.h"
 
+#include <math.h>
+#include <stdio.h>
+
+#include "cJSON.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "esp_check.h"
@@ -12,13 +16,16 @@
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_touch_xpt2046.h"
+#include "esp_littlefs.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
 /* ---------- 引脚定义（2432S028R 官方原理图） ---------- */
+/* LCD 走 SPI2；触摸 XPT2046 在独立总线 SPI3（实测共享总线接法 MISO 全零无应答） */
 #define PIN_LCD_SCLK   14
 #define PIN_LCD_MOSI   13
 #define PIN_LCD_MISO   12
@@ -26,6 +33,9 @@
 #define PIN_LCD_DC     2
 #define PIN_LCD_RST    4
 #define PIN_LCD_BL     21
+#define PIN_TP_SCLK    25
+#define PIN_TP_MOSI    32
+#define PIN_TP_MISO    39
 #define PIN_TOUCH_CS   33
 #define PIN_TOUCH_IRQ  36
 
@@ -33,6 +43,12 @@
 #define LCD_V_RES      240
 #define LCD_SPI_HZ     (40 * 1000 * 1000)
 #define DRAW_BUF_LINES 40
+
+/* 触摸校准十字在屏幕上的位置与间距（与参考实现一致） */
+#define CAL_P1_X  10
+#define CAL_P1_Y  10
+#define CAL_P2_X  (LCD_H_RES - 10)
+#define CAL_P2_Y  (LCD_V_RES - 10)
 
 static const char *TAG = "bsp";
 
@@ -43,9 +59,178 @@ static esp_lcd_touch_handle_t touch_handle;
 void bsp_lvgl_lock(void)   { xSemaphoreTakeRecursive(lvgl_mux, portMAX_DELAY); }
 void bsp_lvgl_unlock(void) { xSemaphoreGiveRecursive(lvgl_mux); }
 
+/* ---------- 触摸校准（两点线性映射，原始 ADC → 屏幕坐标，LittleFS JSON 持久化） ---------- */
+/* 参考 .reff/esp32-touchscreen-stepper-driver：斜率带符号，镜像由校准自动吸收，
+   因此驱动层不做 swap/mirror，直接取 12bit 原始 ADC 值。 */
+typedef struct {
+    float xm, xc;   /* screen_x = raw_x * xm + xc */
+    float ym, yc;   /* screen_y = raw_y * ym + yc */
+} touch_cal_t;
+
+/* 本机型（2432S028R）出厂默认值，从真机校准结果提取；
+   文件缺失时写入该值，串口 CLI 输入 caltouch 可重新校准 */
+#define TOUCH_CAL_DEFAULT \
+    { -0.081585079f, 325.2913818f, -0.062754944f, 246.2943268f }
+
+#define TOUCH_CAL_PATH  "/littlefs/touch.json"
+
+static touch_cal_t tcal = TOUCH_CAL_DEFAULT;
+
+static bool tp_read_raw(uint16_t *x, uint16_t *y)
+{
+    esp_lcd_touch_point_data_t pt[1] = {0};
+    uint8_t count = 0;
+    esp_lcd_touch_read_data(touch_handle);
+    if (esp_lcd_touch_get_data(touch_handle, pt, &count, 1) == ESP_OK && count > 0) {
+        /* 本机横屏安装下面板 raw 轴与屏幕轴交叉：驱动读出的 x 沿屏幕短轴（纵向），
+           y 沿长轴（横向）。在这里交换，使 *x 恒为屏幕水平轴原始值，
+           与默认校准 JSON（xCal 对应 320 长轴、yCal 对应 240 短轴）保持一致 */
+        *x = pt[0].y;
+        *y = pt[0].x;
+        return true;
+    }
+    return false;
+}
+
+static void touch_cal_save(void)
+{
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "xCalM", tcal.xm);
+    cJSON_AddNumberToObject(root, "yCalM", tcal.ym);
+    cJSON_AddNumberToObject(root, "xCalC", tcal.xc);
+    cJSON_AddNumberToObject(root, "yCalC", tcal.yc);
+    char *str = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!str) return;
+    FILE *f = fopen(TOUCH_CAL_PATH, "w");
+    if (f) {
+        fputs(str, f);
+        fclose(f);
+        ESP_LOGI(TAG, "touch cal saved: %s", str);
+    }
+    free(str);
+}
+
+static bool touch_cal_load(void)
+{
+    char buf[160] = {0};
+    FILE *f = fopen(TOUCH_CAL_PATH, "r");
+    if (f) {
+        fread(buf, 1, sizeof(buf) - 1, f);
+        fclose(f);
+        cJSON *root = cJSON_Parse(buf);
+        if (root) {
+            cJSON *xm = cJSON_GetObjectItem(root, "xCalM");
+            cJSON *ym = cJSON_GetObjectItem(root, "yCalM");
+            cJSON *xc = cJSON_GetObjectItem(root, "xCalC");
+            cJSON *yc = cJSON_GetObjectItem(root, "yCalC");
+            if (cJSON_IsNumber(xm) && cJSON_IsNumber(ym) &&
+                cJSON_IsNumber(xc) && cJSON_IsNumber(yc)) {
+                tcal.xm = xm->valuedouble;
+                tcal.ym = ym->valuedouble;
+                tcal.xc = xc->valuedouble;
+                tcal.yc = yc->valuedouble;
+                ESP_LOGI(TAG, "touch cal loaded: xm=%.4f xc=%.1f ym=%.4f yc=%.1f",
+                         tcal.xm, tcal.xc, tcal.ym, tcal.yc);
+                cJSON_Delete(root);
+                return true;
+            }
+            cJSON_Delete(root);
+        }
+        ESP_LOGW(TAG, "touch cal file invalid, rewriting factory default");
+    } else {
+        /* 首次启动：写入出厂默认值，不进校准流程 */
+        ESP_LOGW(TAG, "touch cal not found, writing factory default");
+    }
+    /* 缺失或损坏：tcal 已是出厂默认值，落盘即可 */
+    touch_cal_save();
+    return true;
+}
+
+/* 校准时 LVGL 任务尚未启动，手动泵 lv_timer_handler */
+static void cal_pump(void)
+{
+    lv_timer_handler();
+    vTaskDelay(pdMS_TO_TICKS(10));
+}
+
+/* 按住采样 8 次取平均，滤掉电阻屏噪声 */
+static void cal_sample(uint16_t *x, uint16_t *y)
+{
+    uint32_t ax = 0, ay = 0;
+    int n = 0;
+    while (n < 8) {
+        uint16_t rx, ry;
+        if (tp_read_raw(&rx, &ry)) { ax += rx; ay += ry; n++; }
+        cal_pump();
+    }
+    *x = ax / 8;
+    *y = ay / 8;
+}
+
+static void touch_cal_run(void)
+{
+    lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
+
+    lv_obj_t *label = lv_label_create(scr);
+    lv_label_set_text(label, "Touch Calibration");
+    lv_obj_set_style_text_color(label, lv_color_white(), 0);
+    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 40);
+
+    lv_obj_t *hint = lv_label_create(scr);
+    lv_label_set_text(hint, "Press the cross");
+    lv_obj_set_style_text_color(hint, lv_color_white(), 0);
+    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 60);
+
+    /* 十字线：一横一竖两个白色细矩形 */
+    lv_obj_t *ch = lv_obj_create(scr);
+    lv_obj_remove_style_all(ch);
+    lv_obj_set_size(ch, 22, 2);
+    lv_obj_set_style_bg_color(ch, lv_color_white(), 0);
+    lv_obj_set_style_bg_opa(ch, LV_OPA_COVER, 0);
+    lv_obj_t *cv = lv_obj_create(scr);
+    lv_obj_remove_style_all(cv);
+    lv_obj_set_size(cv, 2, 22);
+    lv_obj_set_style_bg_color(cv, lv_color_white(), 0);
+    lv_obj_set_style_bg_opa(cv, LV_OPA_COVER, 0);
+
+    lv_screen_load(scr);
+
+    uint16_t x1, y1, x2, y2, rx, ry;
+
+    lv_obj_set_pos(ch, CAL_P1_X - 11, CAL_P1_Y - 1);
+    lv_obj_set_pos(cv, CAL_P1_X - 1, CAL_P1_Y - 11);
+    while (tp_read_raw(&rx, &ry)) cal_pump();   /* 等松开 */
+    while (!tp_read_raw(&rx, &ry)) cal_pump();  /* 等按下 */
+    cal_sample(&x1, &y1);
+
+    lv_obj_set_pos(ch, CAL_P2_X - 11, CAL_P2_Y - 1);
+    lv_obj_set_pos(cv, CAL_P2_X - 1, CAL_P2_Y - 11);
+    while (tp_read_raw(&rx, &ry)) cal_pump();
+    while (!tp_read_raw(&rx, &ry)) cal_pump();
+    cal_sample(&x2, &y2);
+
+    tcal.xm = (float)(CAL_P2_X - CAL_P1_X) / ((float)x2 - (float)x1);
+    tcal.xc = (float)CAL_P1_X - (float)x1 * tcal.xm;
+    tcal.ym = (float)(CAL_P2_Y - CAL_P1_Y) / ((float)y2 - (float)y1);
+    tcal.yc = (float)CAL_P1_Y - (float)y1 * tcal.ym;
+    touch_cal_save();
+    ESP_LOGI(TAG, "touch cal done: raw(%u,%u)-(%u,%u) xm=%.4f xc=%.1f ym=%.4f yc=%.1f",
+             x1, y1, x2, y2, tcal.xm, tcal.xc, tcal.ym, tcal.yc);
+
+    lv_label_set_text(hint, "Done");
+    for (int i = 0; i < 50; i++) cal_pump();
+}
+
 /* ---------- LVGL 对接 ---------- */
 static void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 {
+    /* ILI9341 走 SPI 要求先发像素高字节，LVGL 内存是小端 RGB565 → 就地交换字节。
+       （不用 LV_COLOR_FORMAT_RGB565_SWAPPED：该格式在本版 LVGL 渲染路径上有问题，实测雪花屏） */
+    uint16_t *p = (uint16_t *)px_map;
+    int32_t n = (int32_t)(area->x2 - area->x1 + 1) * (area->y2 - area->y1 + 1);
+    for (int32_t i = 0; i < n; i++) p[i] = (uint16_t)((p[i] >> 8) | (p[i] << 8));
     esp_lcd_panel_draw_bitmap(panel_handle, area->x1, area->y1,
                               area->x2 + 1, area->y2 + 1, px_map);
     lv_display_flush_ready(disp);
@@ -58,16 +243,31 @@ static uint32_t tick_cb(void)
 
 static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
 {
-    uint16_t x[1], y[1];
-    uint8_t count = 0;
-    esp_lcd_touch_read_data(touch_handle);
-    if (esp_lcd_touch_get_coordinates(touch_handle, x, y, NULL, &count, 1) && count > 0) {
-        data->state = LV_INDEV_STATE_PRESSED;
-        data->point.x = x[0];
-        data->point.y = y[0];
+    static uint16_t last_rx, last_ry;       /* 最近一次有效按压的原始坐标 */
+    static int64_t last_valid_us;           /* 最近一次有效按压的时间戳 */
+    static bool pressing;                   /* 是否处于一次按压过程中 */
+
+    uint16_t rx, ry;
+    if (tp_read_raw(&rx, &ry)) {
+        last_rx = rx;
+        last_ry = ry;
+        last_valid_us = esp_timer_get_time();
+        pressing = true;
+    } else if (pressing && esp_timer_get_time() - last_valid_us < 50 * 1000) {
+        /* 滑动中压力/采样瞬时丢失（Z 阈值或有效采样数不足）时，桥接为仍按住。
+           否则 LVGL 看到 PRESSED→RELEASED 跳变，会把滑动手势拆成一串点按 */
+        rx = last_rx;
+        ry = last_ry;
     } else {
+        pressing = false;
         data->state = LV_INDEV_STATE_RELEASED;
+        return;
     }
+    int32_t sx = (int32_t)lroundf(rx * tcal.xm + tcal.xc);
+    int32_t sy = (int32_t)lroundf(ry * tcal.ym + tcal.yc);
+    data->state = LV_INDEV_STATE_PRESSED;
+    data->point.x = LV_CLAMP(0, sx, LCD_H_RES - 1);
+    data->point.y = LV_CLAMP(0, sy, LCD_V_RES - 1);
 }
 
 static void lvgl_task(void *arg)
@@ -86,6 +286,23 @@ void bsp_init(void)
 {
     lvgl_mux = xSemaphoreCreateRecursiveMutex();
 
+    /* NVS（WiFi 模块会用，重复 init 安全） */
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        nvs_flash_erase();
+        nvs_flash_init();
+    }
+
+    /* LittleFS：挂载 storage 分区到 /littlefs，存放 touch.json 触摸校准参数
+       （storage 分区出厂为空，首次启动自动格式化） */
+    esp_vfs_littlefs_conf_t fs_conf = {
+        .base_path = "/littlefs",
+        .partition_label = "storage",
+        .format_if_mount_failed = true,
+        .dont_mount = false,
+    };
+    ESP_ERROR_CHECK(esp_vfs_littlefs_register(&fs_conf));
+
     /* 背光 GPIO */
     gpio_config_t bk = {
         .pin_bit_mask = 1ULL << PIN_LCD_BL,
@@ -93,7 +310,7 @@ void bsp_init(void)
     };
     ESP_ERROR_CHECK(gpio_config(&bk));
 
-    /* SPI 总线（LCD 与触摸共用） */
+    /* SPI2 总线（LCD） */
     spi_bus_config_t buscfg = {
         .sclk_io_num = PIN_LCD_SCLK,
         .mosi_io_num = PIN_LCD_MOSI,
@@ -103,6 +320,16 @@ void bsp_init(void)
         .max_transfer_sz = LCD_H_RES * DRAW_BUF_LINES * 2 + 8,
     };
     ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO));
+
+    /* SPI3 总线（触摸 XPT2046，低速，无需 DMA） */
+    spi_bus_config_t tp_buscfg = {
+        .sclk_io_num = PIN_TP_SCLK,
+        .mosi_io_num = PIN_TP_MOSI,
+        .miso_io_num = PIN_TP_MISO,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+    };
+    ESP_ERROR_CHECK(spi_bus_initialize(SPI3_HOST, &tp_buscfg, SPI_DMA_DISABLED));
 
     /* LCD panel IO + ILI9341 */
     esp_lcd_panel_io_handle_t io_handle;
@@ -119,30 +346,30 @@ void bsp_init(void)
 
     esp_lcd_panel_dev_config_t panel_cfg = {
         .reset_gpio_num = PIN_LCD_RST,
-        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,
+        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,   /* 面板 BGR 原生（对照 TFT_eSPI ILI9341_2 驱动实测） */
         .bits_per_pixel = 16,
     };
     ESP_ERROR_CHECK(esp_lcd_new_panel_ili9341(io_handle, &panel_cfg, &panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
-    /* 横屏 320x240 */
+    /* 横屏 320x240；swap_xy 后屏幕水平轴对应面板 Y 轴，水平镜像要翻 mirror_y */
     ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel_handle, true));
-    ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, true, false));
+    ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, true, true));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
     ESP_ERROR_CHECK(gpio_set_level(PIN_LCD_BL, 1));
 
-    /* 触摸 XPT2046 */
+    /* 触摸 XPT2046：取原始 ADC，不做驱动层坐标换算/镜像（由两点校准吸收） */
     esp_lcd_panel_io_handle_t tp_io;
     esp_lcd_panel_io_spi_config_t tp_io_cfg = ESP_LCD_TOUCH_IO_SPI_XPT2046_CONFIG(PIN_TOUCH_CS);
-    ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)SPI2_HOST, &tp_io_cfg, &tp_io));
+    ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)SPI3_HOST, &tp_io_cfg, &tp_io));
 
     esp_lcd_touch_config_t tp_cfg = {
-        .x_max = LCD_H_RES,
-        .y_max = LCD_V_RES,
+        .x_max = 4096,   /* 原始 12bit ADC 空间 */
+        .y_max = 4096,
         .rst_gpio_num = GPIO_NUM_NC,
         .int_gpio_num = PIN_TOUCH_IRQ,
         .levels = {.reset = 0, .interrupt = 0},
-        .flags = {.swap_xy = true, .mirror_x = true, .mirror_y = false},
+        .flags = {.swap_xy = false, .mirror_x = false, .mirror_y = false},
     };
     ESP_ERROR_CHECK(esp_lcd_touch_new_spi_xpt2046(tp_io, &tp_cfg, &touch_handle));
 
@@ -161,6 +388,11 @@ void bsp_init(void)
     lv_indev_t *indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(indev, touch_read_cb);
+
+    /* 无校准数据 → 阻塞式两点校准（LVGL 任务启动前手动泵帧） */
+    if (!touch_cal_load()) {
+        touch_cal_run();
+    }
 
     xTaskCreatePinnedToCore(lvgl_task, "lvgl", 12288, NULL, 4, NULL, 1);
 

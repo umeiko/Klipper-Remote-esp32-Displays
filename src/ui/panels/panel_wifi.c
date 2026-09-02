@@ -7,6 +7,7 @@
 #include "../panel_mgr.h"
 #include "../assets/icons.h"
 #include "bsp_wifi.h"
+#include "app_settings.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -19,6 +20,7 @@ static char      sel_ssid[BSP_WIFI_SSID_MAX + 1];
 static char      pwd_buf[BSP_WIFI_PASS_MAX + 1];   /* windows 实现要求密码在连接期间保持有效 */
 static int       scanning;          /* 等待扫描结果中 */
 static int       connecting;        /* 处于连接流程，tick 里轮询状态 */
+static int       connect_ticks;     /* 连接超时兜底：30s 无结果视为失败 */
 
 static bsp_wifi_ap_t aps[16];       /* 静态：行点击事件要引用，不能放栈上 */
 
@@ -58,6 +60,7 @@ static void start_connect(const char *ssid, const char *pwd)
     pwd_buf[sizeof(pwd_buf) - 1] = 0;
     bsp_wifi_connect(sel_ssid, pwd_buf);
     connecting = 1;
+    connect_ticks = 0;
 
     conn_overlay = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(conn_overlay);
@@ -91,12 +94,15 @@ static void pwd_overlay_close(void)
 static void on_kb_ready(lv_event_t *e)
 {
     LV_UNUSED(e);
-    const char *pwd = lv_textarea_get_text(ta_pwd);
     char ssid[BSP_WIFI_SSID_MAX + 1];
+    char pwd[BSP_WIFI_PASS_MAX + 1];
+    /* 必须先拷出来再关弹层：textarea 随弹层删除，直接拿指针会读到已释放内存 */
     strncpy(ssid, sel_ssid, sizeof(ssid) - 1);
     ssid[sizeof(ssid) - 1] = 0;
+    strncpy(pwd, lv_textarea_get_text(ta_pwd), sizeof(pwd) - 1);
+    pwd[sizeof(pwd) - 1] = 0;
     pwd_overlay_close();
-    start_connect(ssid, pwd);       /* pwd 指向随弹层删除的 textarea 文本，start_connect 内已拷贝 */
+    start_connect(ssid, pwd);
 }
 
 static void on_kb_cancel(lv_event_t *e)
@@ -124,7 +130,7 @@ static void open_password_dialog(const char *ssid)
     ta_pwd = lv_textarea_create(pwd_overlay);
     lv_obj_set_style_text_font(ta_pwd, THEME_FONT_S, 0);   /* 占位符是中文，默认 montserrat 会变方框 */
     lv_textarea_set_one_line(ta_pwd, true);
-    lv_textarea_set_password_mode(ta_pwd, true);
+    /* 不回显掩码：电阻屏点按本来就难，明文便于确认输没输对 */
     lv_textarea_set_placeholder_text(ta_pwd, "密码");
     lv_obj_set_width(ta_pwd, 300);
     lv_obj_align(ta_pwd, LV_ALIGN_TOP_MID, 0, 34);
@@ -192,11 +198,23 @@ static void build_list_from(int n)
 static void tick(void)
 {
     if (connecting) {
+        /* 超时兜底：正常失败会有 DISCONNECTED→FAILED，防御状态机卡死 */
+        if (++connect_ticks > 30) {
+            ui_toast("连接超时", THEME_COL_ERROR);
+            conn_overlay_close();
+            return;
+        }
         switch (bsp_wifi_status()) {
         case BSP_WIFI_CONNECTED: {
             char msg[64];
             snprintf(msg, sizeof(msg), "已连接 %s", sel_ssid);
             ui_toast(msg, THEME_COL_OK);
+            /* 凭据落盘 network.conf，下次开机自动回连 */
+            wifi_conf_t wc = {0};
+            strncpy(wc.ssid, sel_ssid, sizeof(wc.ssid) - 1);
+            strncpy(wc.pass, pwd_buf, sizeof(wc.pass) - 1);
+            wc.valid = true;
+            settings_save_wifi(&wc);
             conn_overlay_close();
             break;
         }

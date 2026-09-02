@@ -6,7 +6,7 @@
  */
 #include "bsp.h"
 #include "ui_app.h"
-#include "mock_printer.h"
+#include "printer.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -97,7 +97,7 @@ int main(int argc, char **argv)
         if (argc >= 4)
             ui_app_open(argv[3]);   /* 直接打开指定面板再截图 */
         if (argc >= 5 && strcmp(argv[4], "printing") == 0) {
-            mock_print_start("3dbenchy.gcode");   /* 演示打印中状态 */
+            printer_print_start("3dbenchy.gcode");   /* 演示打印中状态 */
             ui_app_open("job_status");
         }
     }

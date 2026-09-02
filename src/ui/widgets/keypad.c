@@ -1,6 +1,5 @@
 #include "keypad.h"
 #include "../theme.h"
-#include "../ui_anim.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,22 +41,6 @@ static void on_key(lv_event_t *e)
 static void on_overlay_click(lv_event_t *e)
 {
     if (lv_event_get_target(e) == overlay) keypad_close(0);
-}
-
-/* lv_anim exec 回调签名是 (void *, int32_t)，样式 setter 带 selector 参数，包一层 */
-static void keypad_anim_opa(void *obj, int32_t v)
-{
-    lv_obj_set_style_opa((lv_obj_t *)obj, (lv_opa_t)v, 0);
-}
-
-static void keypad_anim_scale_x(void *obj, int32_t v)
-{
-    lv_obj_set_style_transform_scale_x((lv_obj_t *)obj, v, 0);
-}
-
-static void keypad_anim_scale_y(void *obj, int32_t v)
-{
-    lv_obj_set_style_transform_scale_y((lv_obj_t *)obj, v, 0);
 }
 
 void keypad_open(const char *title, float initial, keypad_cb_t callback, void *user_data)
@@ -119,11 +102,6 @@ void keypad_open(const char *title, float initial, keypad_cb_t callback, void *u
     lv_obj_set_size(b_ok, 100, 28);
     lv_obj_add_event_cb(b_ok, on_key, LV_EVENT_CLICKED, "OK");
 
-    /* 入场：背景淡入 + 卡片弹入（样式 setter 多一个 selector 参数，用包装函数适配动画回调） */
-    ui_anim_to(card, keypad_anim_opa, LV_OPA_0, LV_OPA_COVER,
-               UI_ANIM_NORMAL, lv_anim_path_ease_out);
-    ui_anim_to(card, keypad_anim_scale_x, 220, 256,
-               UI_ANIM_NORMAL, lv_anim_path_ease_out);
-    ui_anim_to(card, keypad_anim_scale_y, 220, 256,
-               UI_ANIM_NORMAL, lv_anim_path_ease_out);
+    /* 不做入场动画：卡片 opa/scale 动画会强制 LVGL 建中间层缓冲（~100KB），
+       ESP32 堆分配失败会把 lvgl 任务卡死（看门狗），直接显示即可 */
 }

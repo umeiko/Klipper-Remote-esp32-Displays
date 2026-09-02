@@ -4,7 +4,7 @@
 #include "../theme.h"
 #include "../ui_anim.h"
 #include "../panel_mgr.h"
-#include "../mock_printer.h"
+#include "printer.h"
 #include "../widgets/keypad.h"
 #include "../assets/icons.h"
 #include <stdio.h>
@@ -22,17 +22,17 @@ static void temp_anim_cb(void *obj, int32_t v10)
 static void set_ext_cb(float v, int ok, void *ud)
 {
     LV_UNUSED(ud);
-    if (ok) { mock_set_target_ext(v); ui_toast(v > 0 ? "喷嘴加热中" : "喷嘴已关闭", THEME_COL_EXTRUDER); }
+    if (ok) { printer_set_target_ext(v); ui_toast(v > 0 ? "喷嘴加热中" : "喷嘴已关闭", THEME_COL_EXTRUDER); }
 }
 
 static void set_bed_cb(float v, int ok, void *ud)
 {
     LV_UNUSED(ud);
-    if (ok) { mock_set_target_bed(v); ui_toast(v > 0 ? "热床加热中" : "热床已关闭", THEME_COL_BED); }
+    if (ok) { printer_set_target_bed(v); ui_toast(v > 0 ? "热床加热中" : "热床已关闭", THEME_COL_BED); }
 }
 
-static void on_row_ext(lv_event_t *e) { LV_UNUSED(e); keypad_open("喷嘴目标温度", mock_target_ext(), set_ext_cb, NULL); }
-static void on_row_bed(lv_event_t *e) { LV_UNUSED(e); keypad_open("热床目标温度", mock_target_bed(), set_bed_cb, NULL); }
+static void on_row_ext(lv_event_t *e) { LV_UNUSED(e); keypad_open("喷嘴目标温度", printer_target_ext(), set_ext_cb, NULL); }
+static void on_row_bed(lv_event_t *e) { LV_UNUSED(e); keypad_open("热床目标温度", printer_target_bed(), set_bed_cb, NULL); }
 
 static void on_preset(lv_event_t *e)
 {
@@ -40,8 +40,8 @@ static void on_preset(lv_event_t *e)
     static const struct { float e, b; const char *name; } presets[] = {
         {210, 60, "PLA"}, {240, 80, "PETG"}, {250, 100, "ABS"}, {0, 0, "全部冷却"},
     };
-    mock_set_target_ext(presets[idx].e);
-    mock_set_target_bed(presets[idx].b);
+    printer_set_target_ext(presets[idx].e);
+    printer_set_target_bed(presets[idx].b);
     ui_toast(presets[idx].name, THEME_COL_ACCENT);
 }
 
@@ -73,8 +73,8 @@ static lv_obj_t *make_row(lv_obj_t *parent, const char *name, uint32_t col,
 
 static void update_temps(void)
 {
-    int e10 = (int)(mock_temp_ext() * 10);
-    int b10 = (int)(mock_temp_bed() * 10);
+    int e10 = (int)(printer_temp_ext() * 10);
+    int b10 = (int)(printer_temp_bed() * 10);
     if (ext_shown10 < 0) ext_shown10 = e10;   /* 首次直接到位 */
     if (bed_shown10 < 0) bed_shown10 = b10;
     if (e10 != ext_shown10) {
@@ -85,8 +85,8 @@ static void update_temps(void)
         ui_anim_to(lbl_bed_cur, temp_anim_cb, bed_shown10, b10, UI_ANIM_SLOW, lv_anim_path_ease_out);
         bed_shown10 = b10;
     }
-    lv_label_set_text_fmt(lbl_ext_tgt, "/%d" "\xC2\xB0", (int)(mock_target_ext() + 0.5f));
-    lv_label_set_text_fmt(lbl_bed_tgt, "/%d" "\xC2\xB0", (int)(mock_target_bed() + 0.5f));
+    lv_label_set_text_fmt(lbl_ext_tgt, "/%d" "\xC2\xB0", (int)(printer_target_ext() + 0.5f));
+    lv_label_set_text_fmt(lbl_bed_tgt, "/%d" "\xC2\xB0", (int)(printer_target_bed() + 0.5f));
 }
 
 static lv_obj_t *create(void)

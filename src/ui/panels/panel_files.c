@@ -4,7 +4,7 @@
 #include "../theme.h"
 #include "../ui_anim.h"
 #include "../panel_mgr.h"
-#include "../mock_printer.h"
+#include "printer.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -20,11 +20,11 @@ static const struct { const char *name; float size_mb; } mock_files[] = {
 static void on_file(lv_event_t *e)
 {
     const char *name = (const char *)lv_event_get_user_data(e);
-    if (mock_state() == MOCK_STATE_PRINTING) {
+    if (printer_state() == PRINTER_STATE_PRINTING) {
         ui_toast("正在打印中，无法开始新任务", THEME_COL_ERROR);
         return;
     }
-    mock_print_start(name);
+    printer_print_start(name);
     ui_toast("开始打印", THEME_COL_OK);
     panel_mgr_open("job_status");
 }

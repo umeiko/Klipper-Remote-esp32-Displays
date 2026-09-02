@@ -1,0 +1,274 @@
+/*
+ * 真实打印机数据模型（esp32）：数据来自 Moonraker 订阅（moonraker_client.c），
+ * 增量经 lv_async_call 投递到 LVGL 上下文后由 printer_model_apply_status_json 合入，
+ * 因此模型读写都在 LVGL 任务里，无需互斥锁。
+ *
+ * 状态判定对齐 KlipperScreen printer.py evaluate_state 的裁剪版：
+ *   klippy(webhooks.state) != ready → DISCONNECTED / ERROR
+ *   ready 时看 print_stats.state → STANDBY/PRINTING/PAUSED/COMPLETE
+ */
+#include "printer.h"
+#include "printer_model_internal.h"
+#include "moonraker_client.h"
+#include "klipper_api.h"
+#include "app_settings.h"
+#include "bsp_wifi.h"
+
+#include "cJSON.h"
+#include "lvgl.h"
+
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+static struct {
+    printer_state_t state;
+    float ext, bed, ext_t, bed_t;
+    float pos[3];
+    int   homed[3];
+    int   progress;            /* 千分比 */
+    char  filename[64];
+    float flow;                /* % */
+    float speed;               /* % */
+    double print_duration;     /* print_stats.print_duration，秒 */
+    char  klippy[16];          /* webhooks.state: ready/startup/shutdown/error/... */
+    char  print_state[16];     /* print_stats.state: standby/printing/paused/complete/error */
+    int   online;              /* Moonraker READY */
+    int   rtt_ms;              /* 应用层心跳往返延迟，0=未知 */
+    char  gcode_err[96];       /* 待 UI 提示的 klippy 错误（"!!" 行，已去前缀） */
+} M = {
+    .state = PRINTER_STATE_DISCONNECTED,
+    .flow = 100, .speed = 100,
+    .klippy = "disconnected",
+    .print_state = "standby",
+};
+
+/* ---- UI 注入的刷新回调（panel_mgr_tick） ---- */
+static void (*refresh_hook)(void);
+void printer_set_refresh_hook(void (*fn)(void)) { refresh_hook = fn; }
+static void refresh(void) { if (refresh_hook) refresh_hook(); }
+
+/* ---------- 读 ---------- */
+printer_state_t printer_state(void) { return M.state; }
+float printer_temp_ext(void)   { return M.ext; }
+float printer_temp_bed(void)   { return M.bed; }
+float printer_target_ext(void) { return M.ext_t; }
+float printer_target_bed(void) { return M.bed_t; }
+float printer_pos(int axis)    { return M.pos[axis]; }
+int printer_homed(int axis)    { return M.homed[axis]; }
+int printer_progress_permille(void) { return M.progress; }
+const char *printer_filename(void)  { return M.filename; }
+float printer_flow_pct(void)   { return M.flow; }
+
+/* 取走待提示的 klippy 错误（取后清空）。UI 节拍轮询后弹 toast。 */
+bool printer_take_error(char *out, size_t cap)
+{
+    if (!M.gcode_err[0]) return false;
+    strncpy(out, M.gcode_err, cap - 1);
+    out[cap - 1] = 0;
+    M.gcode_err[0] = 0;
+    return true;
+}
+
+void printer_model_report_gcode_response(char *msg_heap)
+{
+    if (strncmp(msg_heap, "!!", 2) == 0) {
+        strncpy(M.gcode_err, msg_heap + 2, sizeof(M.gcode_err) - 1);
+        M.gcode_err[sizeof(M.gcode_err) - 1] = 0;
+        refresh();   /* 立即刷一拍，让 UI 尽快弹出 */
+    }
+    free(msg_heap);
+}
+
+uint32_t printer_print_elapsed_s(void)
+{
+    return (M.state == PRINTER_STATE_PRINTING || M.state == PRINTER_STATE_PAUSED)
+           ? (uint32_t)M.print_duration : 0;
+}
+
+uint32_t printer_print_eta_s(void)
+{
+    if (M.state != PRINTER_STATE_PRINTING || M.progress < 5) return 0;
+    uint32_t el = printer_print_elapsed_s();
+    return el * (uint32_t)(1000 - M.progress) / (uint32_t)M.progress;
+}
+
+/* ---------- 写（转发 klipper_api；本地状态等订阅回推，不乐观更新） ---------- */
+void printer_set_target_ext(float t)
+{
+    char g[48];
+    snprintf(g, sizeof(g), "M104 S%d", (int)(t + 0.5f));
+    klipper_gcode_script(g);
+}
+
+void printer_set_target_bed(float t)
+{
+    char g[48];
+    snprintf(g, sizeof(g), "M140 S%d", (int)(t + 0.5f));
+    klipper_gcode_script(g);
+}
+
+void printer_jog(int axis, float dist)
+{
+    if (axis < 0 || axis > 2) return;
+    char g[64];
+    snprintf(g, sizeof(g), "G91\nG1 %c%.2f F%d\nG90",
+             "XYZ"[axis], (double)dist, axis == 2 ? 600 : 3000);
+    klipper_gcode_script(g);
+}
+
+void printer_home(int axis)
+{
+    char g[16];
+    if (axis < 0) snprintf(g, sizeof(g), "G28");
+    else          snprintf(g, sizeof(g), "G28 %c", "XYZ"[axis]);
+    klipper_gcode_script(g);
+}
+
+void printer_extrude(float mm)
+{
+    char g[48];
+    snprintf(g, sizeof(g), "M83\nG1 E%.2f F300", (double)mm);
+    klipper_gcode_script(g);
+}
+
+void printer_print_start(const char *filename) { klipper_print_start(filename); }
+void printer_print_pause(void)  { klipper_print_pause(); }
+void printer_print_resume(void) { klipper_print_resume(); }
+void printer_print_cancel(void) { klipper_print_cancel(); }
+void printer_emergency_stop(void)  { klipper_emergency_stop(); }
+void printer_firmware_restart(void){ klipper_firmware_restart(); }
+
+/* ---------- 状态机 ---------- */
+static void evaluate_state(void)
+{
+    printer_state_t prev = M.state;
+
+    if (!M.online || strcmp(M.klippy, "ready") != 0) {
+        if (!M.online || strcmp(M.klippy, "disconnected") == 0 ||
+            strcmp(M.klippy, "startup") == 0)
+            M.state = PRINTER_STATE_DISCONNECTED;
+        else    /* shutdown / error */
+            M.state = PRINTER_STATE_ERROR;
+    } else if (strcmp(M.print_state, "printing") == 0) {
+        M.state = PRINTER_STATE_PRINTING;
+    } else if (strcmp(M.print_state, "paused") == 0) {
+        M.state = PRINTER_STATE_PAUSED;
+    } else if (strcmp(M.print_state, "complete") == 0) {
+        M.state = PRINTER_STATE_COMPLETE;
+    } else {
+        M.state = PRINTER_STATE_STANDBY;
+    }
+
+    if (M.state != prev) refresh();   /* 状态跳变立即刷 UI，温度等靠 1s 节拍 */
+}
+
+void printer_model_set_online(int online)
+{
+    M.online = online;
+    if (!online) M.rtt_ms = 0;   /* 断线后延迟值失效 */
+    evaluate_state();
+}
+
+void printer_model_set_rtt(int ms)
+{
+    M.rtt_ms = ms;   /* 仅存储，UI 节拍自会刷新 */
+}
+
+int printer_rtt_ms(void) { return M.rtt_ms; }
+
+/* ---------- 增量合入 ---------- */
+static float jnum(cJSON *obj, const char *key, float cur)
+{
+    cJSON *it = cJSON_GetObjectItem(obj, key);
+    return cJSON_IsNumber(it) ? (float)it->valuedouble : cur;
+}
+
+static void jstr(cJSON *obj, const char *key, char *out, size_t len)
+{
+    cJSON *it = cJSON_GetObjectItem(obj, key);
+    if (cJSON_IsString(it) && it->valuestring) {
+        strncpy(out, it->valuestring, len - 1);
+        out[len - 1] = 0;
+    }
+}
+
+void printer_model_apply_status_json(char *json_heap)
+{
+    cJSON *status = cJSON_Parse(json_heap);
+    free(json_heap);
+    if (!status) return;
+
+    cJSON *it;
+    if ((it = cJSON_GetObjectItem(status, "extruder"))) {
+        M.ext   = jnum(it, "temperature", M.ext);
+        M.ext_t = jnum(it, "target", M.ext_t);
+    }
+    if ((it = cJSON_GetObjectItem(status, "heater_bed"))) {
+        M.bed   = jnum(it, "temperature", M.bed);
+        M.bed_t = jnum(it, "target", M.bed_t);
+    }
+    if ((it = cJSON_GetObjectItem(status, "toolhead"))) {
+        cJSON *pos = cJSON_GetObjectItem(it, "position");
+        if (cJSON_IsArray(pos)) {
+            for (int i = 0; i < 3; i++) {
+                cJSON *v = cJSON_GetArrayItem(pos, i);
+                if (cJSON_IsNumber(v)) M.pos[i] = (float)v->valuedouble;
+            }
+        }
+        cJSON *ha = cJSON_GetObjectItem(it, "homed_axes");
+        if (cJSON_IsString(ha) && ha->valuestring) {
+            const char *s = ha->valuestring;
+            M.homed[0] = strchr(s, 'x') != NULL;
+            M.homed[1] = strchr(s, 'y') != NULL;
+            M.homed[2] = strchr(s, 'z') != NULL;
+        }
+    }
+    if ((it = cJSON_GetObjectItem(status, "print_stats"))) {
+        jstr(it, "state", M.print_state, sizeof(M.print_state));
+        jstr(it, "filename", M.filename, sizeof(M.filename));
+        cJSON *d = cJSON_GetObjectItem(it, "print_duration");
+        if (cJSON_IsNumber(d)) M.print_duration = d->valuedouble;
+    }
+    if ((it = cJSON_GetObjectItem(status, "virtual_sdcard"))) {
+        cJSON *p = cJSON_GetObjectItem(it, "progress");
+        if (cJSON_IsNumber(p)) M.progress = (int)(p->valuedouble * 1000 + 0.5);
+    } else if ((it = cJSON_GetObjectItem(status, "display_status"))) {
+        cJSON *p = cJSON_GetObjectItem(it, "progress");
+        if (cJSON_IsNumber(p)) M.progress = (int)(p->valuedouble * 1000 + 0.5);
+    }
+    if ((it = cJSON_GetObjectItem(status, "gcode_move"))) {
+        cJSON *f = cJSON_GetObjectItem(it, "extrude_factor");
+        if (cJSON_IsNumber(f)) M.flow = (float)(f->valuedouble * 100);
+        cJSON *s = cJSON_GetObjectItem(it, "speed_factor");
+        if (cJSON_IsNumber(s)) M.speed = (float)(s->valuedouble * 100);
+    }
+    if ((it = cJSON_GetObjectItem(status, "webhooks"))) {
+        jstr(it, "state", M.klippy, sizeof(M.klippy));
+    }
+
+    cJSON_Delete(status);
+    evaluate_state();
+}
+
+/* ---------- 启动编排 ---------- */
+static void tick_1s(lv_timer_t *tm)
+{
+    LV_UNUSED(tm);
+    refresh();
+}
+
+/* 等 WiFi 连上且 moonraker.conf 就绪后启动客户端（2s 轮询，幂等） */
+static void tick_autostart(lv_timer_t *tm)
+{
+    LV_UNUSED(tm);
+    moonraker_start();   /* 内部幂等：未配置/WiFi 未连/已在跑都直接返回 */
+}
+
+void printer_init(void)
+{
+    M.online = 0;
+    evaluate_state();
+    lv_timer_create(tick_1s, 1000, NULL);
+    lv_timer_create(tick_autostart, 2000, NULL);
+}

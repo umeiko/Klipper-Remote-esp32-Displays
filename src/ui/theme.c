@@ -33,17 +33,10 @@ lv_obj_t *theme_button(lv_obj_t *parent, const char *icon, const char *text, int
     lv_obj_set_style_radius(btn, THEME_RADIUS_BTN, 0);
     lv_obj_set_style_shadow_width(btn, 0, 0);
 
-    /* 按压缩放反馈（过渡动画） */
-    static const lv_style_prop_t props[] = {LV_STYLE_TRANSFORM_SCALE_X, LV_STYLE_TRANSFORM_SCALE_Y, 0};
-    static lv_style_transition_dsc_t tr;
-    static int tr_inited = 0;
-    if (!tr_inited) {
-        lv_style_transition_dsc_init(&tr, props, lv_anim_path_ease_out, 120, 0, NULL);
-        tr_inited = 1;
-    }
-    lv_obj_set_style_transform_scale_x(btn, 240, LV_STATE_PRESSED);
-    lv_obj_set_style_transform_scale_y(btn, 240, LV_STATE_PRESSED);
-    lv_obj_set_style_transition(btn, &tr, LV_STATE_PRESSED);
+    /* 按压反馈：背景半透明即可。
+       不能用 transform_scale/opa —— 它们会强制 LVGL 把控件渲染进中间层缓冲，
+       ESP32 堆紧张时该分配失败会让 lvgl 任务死循环（看门狗卡死 UI） */
+    lv_obj_set_style_bg_opa(btn, LV_OPA_70, LV_STATE_PRESSED);
 
     if ((icon && icon[0]) || (text && text[0])) {
         lv_obj_set_flex_flow(btn, LV_FLEX_FLOW_ROW);

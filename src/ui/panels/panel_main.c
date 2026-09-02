@@ -5,7 +5,7 @@
 #include "../assets/icons.h"
 #include "../panel_mgr.h"
 #include "../ui_anim.h"
-#include "../mock_printer.h"
+#include "printer.h"
 #include "../widgets/confirm.h"
 #include <stdio.h>
 
@@ -22,21 +22,21 @@ static void on_menu(lv_event_t *e)
 static void on_status_click(lv_event_t *e)
 {
     LV_UNUSED(e);
-    if (mock_state() == MOCK_STATE_PRINTING || mock_state() == MOCK_STATE_PAUSED)
+    if (printer_state() == PRINTER_STATE_PRINTING || printer_state() == PRINTER_STATE_PAUSED)
         panel_mgr_open("job_status");
 }
 
 static void do_estop(void *ud)
 {
     LV_UNUSED(ud);
-    mock_emergency_stop();   /* 真实实现：Moonraker printer.emergency_stop */
+    printer_emergency_stop();   /* 真实实现：Moonraker printer.emergency_stop */
     ui_toast("已急停（M112）", THEME_COL_ERROR);
 }
 
 static void do_restart(void *ud)
 {
     LV_UNUSED(ud);
-    mock_firmware_restart(); /* 真实实现：Moonraker printer.firmware_restart */
+    printer_firmware_restart(); /* 真实实现：Moonraker printer.firmware_restart */
     ui_toast("已发送重启指令", THEME_COL_WARN);
 }
 
@@ -55,18 +55,20 @@ static void on_restart(lv_event_t *e)
 static void update_state(void)
 {
     static const struct { const char *text; uint32_t col; } st[] = {
-        [MOCK_STATE_STANDBY]  = {"空闲",     THEME_COL_TEXT_DIM},
-        [MOCK_STATE_PRINTING] = {"打印中",   THEME_COL_OK},
-        [MOCK_STATE_PAUSED]   = {"已暂停",   THEME_COL_WARN},
-        [MOCK_STATE_COMPLETE] = {"打印完成", THEME_COL_ACCENT},
+        [PRINTER_STATE_STANDBY]      = {"空闲",     THEME_COL_TEXT_DIM},
+        [PRINTER_STATE_PRINTING]     = {"打印中",   THEME_COL_OK},
+        [PRINTER_STATE_PAUSED]       = {"已暂停",   THEME_COL_WARN},
+        [PRINTER_STATE_COMPLETE]     = {"打印完成", THEME_COL_ACCENT},
+        [PRINTER_STATE_DISCONNECTED] = {"未连接",   THEME_COL_TEXT_DIM},
+        [PRINTER_STATE_ERROR]        = {"Klipper 异常", THEME_COL_ERROR},
     };
-    mock_state_t s = mock_state();
+    printer_state_t s = printer_state();
     lv_label_set_text(lbl_state, st[s].text);
     lv_obj_set_style_bg_color(dot_state, theme_col(st[s].col), 0);
-    if (s == MOCK_STATE_PRINTING || s == MOCK_STATE_PAUSED) {
+    if (s == PRINTER_STATE_PRINTING || s == PRINTER_STATE_PAUSED) {
         char buf[48];
-        snprintf(buf, sizeof(buf), "%s  %d.%d%%", mock_filename(),
-                 mock_progress_permille() / 10, mock_progress_permille() % 10);
+        snprintf(buf, sizeof(buf), "%s  %d.%d%%", printer_filename(),
+                 printer_progress_permille() / 10, printer_progress_permille() % 10);
         lv_label_set_text(lbl_file, buf);
     } else {
         lv_label_set_text(lbl_file, "");

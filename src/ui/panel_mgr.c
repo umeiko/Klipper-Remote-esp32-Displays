@@ -1,6 +1,8 @@
 #include "panel_mgr.h"
 #include "ui_anim.h"
 #include "titlebar.h"
+#include "theme.h"
+#include "printer.h"
 #include <string.h>
 
 /* ---------- 面板注册表（panels 目录下实现，集中声明） ---------- */
@@ -12,6 +14,7 @@ extern panel_def_t panel_extrude_def;
 extern panel_def_t panel_files_def;
 extern panel_def_t panel_settings_def;
 extern panel_def_t panel_wifi_def;
+extern panel_def_t panel_moonraker_def;
 
 static panel_def_t *registry[] = {
     &panel_main_def,
@@ -22,6 +25,7 @@ static panel_def_t *registry[] = {
     &panel_files_def,
     &panel_settings_def,
     &panel_wifi_def,
+    &panel_moonraker_def,
 };
 
 #define REG_COUNT (sizeof(registry) / sizeof(registry[0]))
@@ -83,6 +87,11 @@ const char *panel_mgr_current(void)
 
 void panel_mgr_tick(void)
 {
+    /* klippy 报错（点动超程/未归零等 "!!" 响应行）→ 弹 toast */
+    char err[96];
+    if (printer_take_error(err, sizeof(err)))
+        ui_toast(err, THEME_COL_ERROR);
+
     if (nav_top >= 0 && nav_stack[nav_top]->on_tick)
         nav_stack[nav_top]->on_tick();
     titlebar_tick();

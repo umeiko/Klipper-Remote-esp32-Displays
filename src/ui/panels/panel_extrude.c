@@ -4,7 +4,7 @@
 #include "../theme.h"
 #include "../ui_anim.h"
 #include "../panel_mgr.h"
-#include "../mock_printer.h"
+#include "printer.h"
 #include "../widgets/toggle_group.h"
 #include <stdio.h>
 
@@ -23,20 +23,20 @@ static void on_amt(int idx, void *ud)
 static void on_extrude(lv_event_t *e)
 {
     float dir = (intptr_t)lv_event_get_user_data(e) ? 1.0f : -1.0f;
-    if (mock_temp_ext() < MIN_EXTRUDE_TEMP) {
+    if (printer_temp_ext() < MIN_EXTRUDE_TEMP) {
         ui_toast("喷嘴温度过低，无法挤出", THEME_COL_ERROR);
         return;
     }
-    mock_extrude(dir * amt_table[amt_idx]);
+    printer_extrude(dir * amt_table[amt_idx]);
     ui_toast(dir > 0 ? "挤出中…" : "回抽中…", THEME_COL_EXTRUDER);
 }
 
 static void update_temp(void)
 {
     lv_label_set_text_fmt(lbl_temp, "喷嘴 %d" "\xC2\xB0" "C（挤出需 ≥ %d" "\xC2\xB0" "C）",
-                          (int)(mock_temp_ext() + 0.5f), (int)MIN_EXTRUDE_TEMP);
+                          (int)(printer_temp_ext() + 0.5f), (int)MIN_EXTRUDE_TEMP);
     lv_obj_set_style_text_color(lbl_temp,
-        theme_col(mock_temp_ext() >= MIN_EXTRUDE_TEMP ? THEME_COL_TEXT_DIM : THEME_COL_WARN), 0);
+        theme_col(printer_temp_ext() >= MIN_EXTRUDE_TEMP ? THEME_COL_TEXT_DIM : THEME_COL_WARN), 0);
 }
 
 static lv_obj_t *create(void)

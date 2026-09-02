@@ -9,10 +9,12 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "nvs_flash.h"
 
 #define TAG "bsp_wifi"
 #define SCAN_MAX 16
+#define RECONNECT_DELAY_US (2 * 1000 * 1000)
 
 static struct {
     bool            inited;
@@ -22,10 +24,21 @@ static struct {
     uint16_t        record_num;
     bsp_wifi_state_t state;
     bool            connected;      /* GOT_IP / DISCONNECTED 事件维护 */
+    bool            manual;         /* 主动断开（切换 AP），不做自动重连 */
+    esp_timer_handle_t reconnect_timer;
     char            target_ssid[BSP_WIFI_SSID_MAX + 1];
 } W;
 
 static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *data);
+
+static void reconnect_cb(void *arg)
+{
+    (void)arg;
+    if (!W.connected && !W.manual) {
+        ESP_LOGI(TAG, "auto-reconnect to %s", W.target_ssid);
+        esp_wifi_connect();
+    }
+}
 
 static void ensure_init(void)
 {
@@ -41,11 +54,18 @@ static void ensure_init(void)
     esp_event_loop_create_default();
     esp_netif_create_default_wifi_sta();
 
+    esp_timer_create_args_t t = {.callback = reconnect_cb, .name = "wifi_reconn"};
+    esp_timer_create(&t, &W.reconnect_timer);
+
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_wifi_init(&cfg);
     esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_wifi_event, NULL);
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_wifi_event, NULL);
     esp_wifi_set_mode(WIFI_MODE_STA);
+    /* 市电供电的显示屏没有省电需求。默认 MIN_MODEM 休眠会让下行包在 AP 侧排队到
+       下一个 DTIM，实测 ping RTT 300~600ms 抖动，心跳 RTT 持续爬升并引发
+       WS pong 超时——必须关掉（实测关后 ping 降到个位数 ms） */
+    esp_wifi_set_ps(WIFI_PS_NONE);
     esp_wifi_start();
     W.inited = true;
 }
@@ -59,9 +79,20 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
         W.scan_running = false;
         W.scan_done = true;
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+        wifi_event_sta_disconnected_t *d = data;
+        ESP_LOGW(TAG, "disconnected from %s, reason=%d%s", W.target_ssid, d ? d->reason : -1,
+                 W.manual ? " (manual)" : "");
         W.connected = false;
-        /* 连接中收到断开 = 失败；已连接时断开暂不追踪（里程碑 1 再做重连） */
-        if (W.state == BSP_WIFI_CONNECTING) W.state = BSP_WIFI_FAILED;
+        if (W.manual) {
+            /* 主动断开（bsp_wifi_connect 切换 AP 前的 disconnect），不算失败也不重连 */
+            W.manual = false;
+        } else if (W.state == BSP_WIFI_CONNECTING) {
+            W.state = BSP_WIFI_FAILED;      /* 连接中收到断开 = 失败 */
+        } else {
+            /* 已连接时掉线 → 2s 后自动重连 */
+            esp_timer_stop(W.reconnect_timer);
+            esp_timer_start_once(W.reconnect_timer, RECONNECT_DELAY_US);
+        }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         W.state = BSP_WIFI_CONNECTED;
         W.connected = true;
@@ -101,15 +132,30 @@ int bsp_wifi_scan_poll(bsp_wifi_ap_t *out, int max)
 void bsp_wifi_connect(const char *ssid, const char *password)
 {
     ensure_init();
-    esp_wifi_disconnect();
+    esp_timer_stop(W.reconnect_timer);
+    /* 仅当当前有连接时才主动断开旧 AP（其断开事件用 manual 吞掉，不判失败不重连）。
+       无连接时绝不能置 manual——否则首次连接失败的断开事件会被吞，状态卡死 CONNECTING */
+    if (W.connected) {
+        W.manual = true;
+        esp_wifi_disconnect();
+    }
 
     wifi_config_t cfg = {0};
     strlcpy((char *)cfg.sta.ssid, ssid, sizeof(cfg.sta.ssid));
     if (password && password[0])
         strlcpy((char *)cfg.sta.password, password, sizeof(cfg.sta.password));
     cfg.sta.threshold.authmode = password && password[0] ? WIFI_AUTH_WPA_PSK : WIFI_AUTH_OPEN;
+    /* PMF(802.11w) 声明支持但不强制：
+       WPA2/WPA3 混合模式路由器要求协商 PMF，不支持会导致 4 次握手超时(reason=15) */
+    cfg.sta.pmf_cfg.capable = true;
+    cfg.sta.pmf_cfg.required = false;
 
     strlcpy(W.target_ssid, ssid, sizeof(W.target_ssid));
+    /* 调试：记录驱动实际收到的 ssid/密码（hex 用来抓隐藏字符、编码问题） */
+    ESP_LOGI(TAG, "connect ssid='%s' pass='%s' len=%d", ssid,
+             password ? password : "", password ? (int)strlen(password) : 0);
+    if (password)
+        ESP_LOG_BUFFER_HEX(TAG, password, strlen(password));
     W.state = BSP_WIFI_CONNECTING;
     esp_wifi_set_config(WIFI_IF_STA, &cfg);
     esp_wifi_connect();

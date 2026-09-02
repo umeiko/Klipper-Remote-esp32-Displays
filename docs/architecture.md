@@ -20,7 +20,7 @@
 - 摄像头画面（MJPEG 对 ESP32 解码负担大，后期可选 JPEG 硬解）。
 - Spoolman、update_manager 等扩展组件。
 - OctoPrint 兼容 API。
-- WiFi 配网面板（ESP32 自身的配网通过 ESP-IDF provisioning 或硬编码，不与 KlipperScreen 的 NetworkManager 面板对应）。
+- ~~WiFi 配网面板~~（已实现：`panel_wifi` 扫描/输入密码/连接，凭据存 `network.conf` 自动回连）。
 
 ---
 
@@ -232,6 +232,19 @@ ESP32 上是双核 FreeRTOS，模型对齐 KlipperScreen 的"网络线程 → GL
 - **lvgl_task**：持有 LVGL 锁，消费 `LV_EVENT_*` 类事件刷新 UI；用户触摸产生的指令（gcode 等）打包成"请求"丢回 core_task 发送。
 - 所有跨线程传递走深拷贝 + 定长内存池，避免堆碎片。
 
+### 5.3.1 里程碑 1 实际落地（2026-09，与设计文档的差异）
+
+实际代码在 `src/core/`（组件名 `core`），比上面三任务模型做了简化：
+
+- **没有独立 core_task**：`esp_websocket_client` 自带任务即 net_task；WS 回调里直接 cJSON 解析，status 子对象序列化后经 `lv_async_call` 投递进 LVGL 任务合入模型。模型读写全在 LVGL 上下文，**不需要互斥锁**，也省掉 EventBus——状态变化直接调 UI 注入的 `printer_set_refresh_hook(panel_mgr_tick)`。
+- **UI→网络方向**：`printer_*` 写访问器 → `klipper_api_*` 拼 JSON-RPC → `esp_websocket_client_send_text`（线程安全，直接发，无队列）。
+- **数据层契约**：`src/core/printer.h`（原 `mock_printer.h` 改名，新增 `DISCONNECTED/ERROR` 状态）；desktop 链接 `printer_mock.c`（本地模拟，截图/演示用），esp32 链接 `printer_model.c`（真实 Moonraker 数据），构建系统按后端选源文件，无 `#ifdef`。
+- **MoonrakerClient**（`moonraker_client.c`）：握手 4 步 identify→server.info→objects.list→subscribe（响应即全量）；klippy 未连接时 5s 轮询 server.info；断线指数退避 1→30s 无上限重连；`notify_klippy_ready` 重发订阅，`notify_klippy_shutdown/disconnected` 伪造 webhooks 状态合入（KlipperScreen 同款手法）。
+- **配置存储**：见 §8，`bsp_conf` + `app_settings`（key=value 行格式，两端都不引 JSON 库）。
+- **设置面板**：`panel_settings` → "Moonraker 连接"（`panel_moonraker`：主机/端口/API Key/状态 + 保存并连接）。
+- **WiFi**：`bsp_wifi_esp32.c` 断线 2s 自动重连；`app_main` 开机按 `network.conf` 自动回连；`printer_model` 2s 轮询在 WiFi 就绪且已配置后拉起 Moonraker 客户端。
+- **尚未落地**：plat_* 平台抽象表（§4.2）、EventBus、core_task 队列、动态设备枚举（订阅固定 extruder+heater_bed）、文件列表真实化、温度曲线环形缓冲。desktop 端网络为空桩（`moonraker_client_stub.c`）。
+
 ### 5.4 PanelManager（components/ui_core）
 
 对标 KlipperScreen 的 `show_panel/attach_panel/_cur_panels` 机制：
@@ -291,6 +304,8 @@ LVGL 自带 `lv_anim` + 缓动路径（`lv_anim_path_ease_out / ease_in_out / ov
 - 动画时长统一 150~350ms，缓动曲线集中在 `ui_anim_easing.h` 定义，禁止散落魔法数字。
 - 动画全部跑在 lvgl_task；低内存/低端板（240×320 电阻屏）可通过 `CONFIG_UI_ANIMATION_LEVEL=reduced` 降级为仅转场+数值补间。
 - 电阻屏触摸精度差，按压反馈动画同时承担"确认触摸生效"的可感知性职责。
+- **ESP32 上禁止对控件使用 `style_opa`（整体不透明度）/ `transform_scale`（缩放）动画**：二者会强制 LVGL 把控件渲染进中间层缓冲（宽×高×2 字节），堆紧张时分配失败会使 `lv_draw_layer_alloc_buf` 无限重试，lvgl 任务占死 CPU 触发 IDLE 看门狗、UI 整体卡死（2026-09 实测，按钮按压缩放 + keypad 入场动画均踩中）。按压反馈用 `bg_opa`（仅背景填充混合，不需中间层）；弹窗直接显示。数值/位置类动画（arc value、label 文本、y 坐标）不受影响。
+- **跨任务调 `lv_async_call` 必须持 `bsp_lvgl_lock()`**：本项目 LV_USE_OS=NONE，LVGL 内部无锁；`lv_async_call` 内部 `lv_timer_create` 会改全局 timer 链表，与 lvgl_task 的 `lv_timer_handler` 并发会踩坏链表，表现为 async 定时器被执行两次或 `timer->user_data` 变野指针——崩溃在 `lv_async_timer_cb → lv_free`（"block already marked as free" / "free() target pointer is outside heap areas"，2026-09 现网实锤：WS 任务高频投递时连点几次点动即崩）。moonraker_client.c 统一走 `post_to_lvgl()`（内部加锁），新增跨任务投递一律用它。
 
 ### 5.8 文件与缩略图
 
@@ -357,8 +372,8 @@ lvgl_task: 按钮回调 → ui_confirm("预热到 210/60?") → 确认
 
 - **构建系统**：ESP-IDF 标准 CMake；Linux 后端提供顶层 `CMakeLists.host.txt`（或 `idf.py` 之外的 `cmake -B build-host`），通过 `PLATFORM=linux` 切换 platform/ 实现与 bsp_linux。
 - **板级选择**：`idf.py -DSDKCONFIG_DEFAULTS=sdkconfig.defaults.2432s028r ...` 或 `export BOARD=2432s028r` 由顶层 CMake 拼接。
-- **Kconfig 关键项**：`CONFIG_BOARD_*`、`CONFIG_MOONRAKER_HOST/PORT`（默认值，运行时可改）、`CONFIG_UI_ANIMATION_LEVEL`、`CONFIG_UI_LANGUAGE`。
-- **配置持久化**：打印机地址、API key、主题、背光等存 NVS（Linux 端存 INI），设置面板读写。
+- **Kconfig 关键项**：`CONFIG_BOARD_*`、`CONFIG_UI_ANIMATION_LEVEL`、`CONFIG_UI_LANGUAGE`（板型 Kconfig 待加；Moonraker 地址不走 Kconfig，运行时配置文件管理）。
+- **配置持久化**（已落地）：LittleFS `storage` 分区（`/littlefs/`），`bsp_conf_read/write` 按文件名读写：WiFi 凭据 `network.conf`、Moonraker 连接 `moonraker.conf`（host/port/api_key）、触摸校准 `touch.json`。desktop 端同名文件落在工作目录（`bsp_conf_file.c`），仅供调试 UI。
 - **资源**：图标/字体编译期转 C 数组放 rodata；大资源（中文字库）放 LittleFS 分区，OTA 时不覆盖。
 
 ---
