@@ -26,3 +26,6 @@ tools/icongen/.venv/
 
 # 临时
 tmp/
+
+# desktop 后端运行时产生的本机配置（勿入库）
+src/ports/desktop/*.conf

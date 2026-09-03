@@ -6,4 +6,4 @@ idf_component_register(SRCS "esp32/bsp_cyd_2432s028r.c"
                        INCLUDE_DIRS "."
                        REQUIRES lvgl esp_lcd esp_lcd_ili9341 esp_lcd_touch_xpt2046
                                 esp_timer driver esp_common esp_wifi esp_event esp_netif nvs_flash
-                                littlefs json)
+                                esp_http_client littlefs json)

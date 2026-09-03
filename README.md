@@ -1,93 +1,96 @@
 # Klipper Remote ESP32 Displays
 
-基于 ESP32 CYD 系列开发板的 Klipper 远程触屏显示器（对标 KlipperScreen）。多后端架构：所有界面/业务代码共享，每个后端（ESP32 各板型、desktop SDL2、未来的 Pico/STM32…）地位平等。
+[![build](https://github.com/umeiko/Klipper-Remote-esp32-Displays/actions/workflows/build.yml/badge.svg)](https://github.com/umeiko/Klipper-Remote-esp32-Displays/actions/workflows/build.yml)
 
-- 架构设计：[docs/architecture.md](docs/architecture.md)
-- Klipper/Moonraker API 参考：[docs/klipper-moonraker-api.md](docs/klipper-moonraker-api.md)
-- LVGL v9 API 防错笔记：[docs/lvgl-v9-api-notes.md](docs/lvgl-v9-api-notes.md)
+[中文文档](README_zh.md)
 
-## 技术栈
+A touchscreen remote display for **Klipper** 3D printers, talking to **Moonraker** over WiFi — running on cheap **ESP32 CYD (2432S028R)** boards. Think of it as a pocket-sized, wireless KlipperScreen.
 
-ESP-IDF v5.5.5 · LVGL v9.3 · 多后端（ESP32 各 CYD 板型 / desktop SDL2：Windows+Linux / 未来 Pico SDK、STM32…）
+The same UI code also compiles as a **desktop simulator** (SDL2, Windows/Linux), so every panel can be developed and screenshot-tested without flashing hardware.
 
-## 目录
+| Boot | Main (idle) | Disconnected | Klipper error |
+|---|---|---|---|
+| ![boot](docs/screenshots/boot.png) | ![idle](docs/screenshots/main_idle.png) | ![offline](docs/screenshots/main_offline.png) | ![error](docs/screenshots/main_error.png) |
 
-```
-src/                      # 全部源码
-  ui/                     #   界面（所有后端共享）
-  bsp/                    #   板级支持：功能→架构两级
-    bsp.h                 #     BSP 接口契约
-    esp32/                #     ESP32 家族各板（bsp_cyd_2432s028r.c 等）
-    desktop/              #     桌面 SDL2 BSP
-  ports/                  #   每个后端一个可构建工程（构建胶水 + 入口）
-    esp32/                #     ESP-IDF 工程（idf.py 在此目录运行）
-    desktop/              #     CMake 工程（SDL2，Win/Linux）
-tools/                  # 构建脚本与便携工具链（非源码）
-third_party/lvgl/       # LVGL v9.3（git clone，不入库）
-docs/                   # 设计文档
-```
+| Move | Temperature | Printing | Settings |
+|---|---|---|---|
+| ![move](docs/screenshots/move.png) | ![temp](docs/screenshots/temperature.png) | ![printing](docs/screenshots/printing.png) | ![settings](docs/screenshots/settings.png) |
 
-新增后端 = `src/bsp/<架构>/` 加一个 BSP 实现 + `src/ports/<架构>/` 加一个工程壳；同一架构的新板型只需在 `src/bsp/<架构>/` 里加文件。
+## Features
 
-## 环境准备（Windows，全程不依赖 GitHub）
+- **Live printer status** — nozzle/bed temperatures in the title bar, state card (idle / printing / paused / complete / error), per-state full-card color coding
+- **Print jobs** — browse G-code history, print or delete from a detail view, live progress ring with elapsed/remaining time, pause / resume / cancel
+- **Control** — axis jog & homing, extrude/retract with cold-extrusion guard, temperature presets (PLA/PETG/ABS/cooldown), emergency stop & firmware restart with confirmation
+- **Robust link** — WebSocket auto-reconnect, app-level heartbeat with RTT display, zombie-connection detection, Klipper error toasts (e.g. endstop not triggered)
+- **Polished UX** — "Umeko" boot animation, bilingual UI (中文/English) with fade-to-black restart on switch, backlight slider, auto screen-off (15s…1h/never) with touch wake-up, title-bar clock synced from the Moonraker host (pure LAN, no internet needed)
+- **One-time touch calibration** persisted to flash; factory calibration pre-installed for the 2432S028R
 
-1. **ESP-IDF**：离线安装器安装 v5.5.5（本机位于 `C:\esp\v5.5.5\esp-idf`，工具链 `C:\Espressif\tools`）。
-   注意：Git Bash 的 MSYS2 运行时会向子进程注入 `MSYSTEM`，导致 `idf.py` 静默空转——
-   必须通过 `tools/idf.ps1` 包装器调用（内部用 EIM profile 激活并移除该变量）。
-2. **便携 MSYS2**（desktop 后端的 MinGW 编译环境）：
-   ```bash
-   curl -L -o tools/dl/msys2-base.tar.xz https://mirrors.tuna.tsinghua.edu.cn/msys2/distrib/x86_64/msys2-base-x86_64-20260611.tar.xz
-   mkdir -p tools/msys64 && tar -xf tools/dl/msys2-base.tar.xz -C tools/msys64 --strip-components=1
-   tools/msys64/usr/bin/bash.exe -lc "echo ok"   # 首次运行完成初始化
-   echo 'Server = https://mirrors.tuna.tsinghua.edu.cn/msys2/msys/$arch'  > tools/msys64/etc/pacman.d/mirrorlist.msys
-   echo 'Server = https://mirrors.tuna.tsinghua.edu.cn/msys2/mingw/$repo' > tools/msys64/etc/pacman.d/mirrorlist.mingw
-   tools/msys64/usr/bin/bash.exe -lc "pacman -Sy --noconfirm mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-SDL2"
-   ```
-3. **LVGL**：`git clone --depth 1 -b release/v9.3 https://gitee.com/mirrors/lvgl.git third_party/lvgl`
+## Hardware
 
-## 构建
+- **ESP32-2432S028R** ("Cheap Yellow Display"): 320×240 ILI9341 TFT + XPT2046 resistive touch, WiFi
+- Same LAN as the Klipper host (Moonraker reachable at `host:7125`)
+
+## Flash (release zip)
+
+Download `klipper-remote-esp32-*.zip` from [Releases](../../releases) (or CI artifacts), unzip, then:
+
+- **Windows**: `flash.bat COM6`
+- **macOS / Linux**: `./flash.sh /dev/ttyUSB0` (needs `pip install esptool`)
+
+The zip contains `bootloader.bin`, `partition-table.bin`, the app binary, `esptool.exe` (Windows standalone) and the flash scripts. First boot auto-formats the LittleFS partition and writes factory touch calibration.
+
+## First-time setup
+
+1. **Settings → WiFi**: scan, pick AP, enter password — saved to `network.conf`
+2. **Settings → Moonraker**: host IP + port (default 7125), optional API key — saved to `moonraker.conf`
+3. Preferences (language / brightness / screen-off) live in `klipperscreen.conf`
+
+All config lives in LittleFS on the device. A serial CLI (`115200 8N1`) is available for debugging: `help`, `wifi`, `mr`, `mrstart`, `gc`, `status`, `ps`, `ls`, `cd`, `cat`, `rm` …
+
+## Build from source
+
+Toolchain: **ESP-IDF v5.5.5** · **LVGL v9.3** · SDL2 (desktop).
 
 ```bash
-# desktop 后端（产物 src/ports/desktop/build/klipper_remote_desktop.exe）
+# Desktop simulator (Windows via bundled MSYS2, or Linux with system SDL2)
 bash tools/build-desktop.sh
-./src/ports/desktop/build/klipper_remote_desktop.exe            # 交互窗口
-./src/ports/desktop/build/klipper_remote_desktop.exe 3000 x.bmp # 3 秒后截图退出
+./src/ports/desktop/build/klipper_remote_desktop.exe              # interactive window
+./src/ports/desktop/build/klipper_remote_desktop.exe 3000 x.bmp   # screenshot after 3s
 
-# ESP32 后端（CYD 2432S028R，工程目录 src/ports/esp32）
+# ESP32 firmware (project dir: src/ports/esp32)
 cd src/ports/esp32
-powershell -NoProfile -ExecutionPolicy Bypass -File ../../../tools/idf.ps1 build
+powershell -NoProfile -ExecutionPolicy Bypass -File ../../../tools/idf.ps1 build   # Windows wrapper
 powershell -NoProfile -ExecutionPolicy Bypass -File ../../../tools/idf.ps1 -p COMx flash monitor
 ```
 
-## 中文字体（改了 UI 文案后必跑）
+On Windows, call `idf.py` through `tools/idf.ps1` — Git Bash injects `MSYSTEM` into child processes and makes `idf.py` silently no-op. See [README_zh.md](README_zh.md) for the full Chinese toolchain guide (offline installers, mirrors).
 
-界面里所有字符串字面量的非 ASCII 字符会被自动提取，生成 CJK 子集字体：
+## Project layout
 
-```bash
-python tools/fontgen/gen_fonts.py        # 默认用 C:/Windows/Fonts/simhei.ttf，可 --font 换
+```
+src/
+  ui/          # panels, theme, i18n, icons, boot animation — shared by all ports
+  core/        # moonraker client (WS+JSON-RPC), printer model, settings
+  bsp/         # board support: bsp.h contract + per-arch implementations
+  ports/       # one buildable project per port (esp32 / desktop)
+docs/          # architecture & API notes
+tools/         # build scripts, font/icon generators, release packaging
+.github/       # CI: ESP-IDF build → flashable zip (+ release on v* tags)
 ```
 
-新增中文后不重跑就会出现方框（□）。生成后需重新编译对应后端。
+Adding a new board of the same architecture = one file in `src/bsp/<arch>/`. A whole new port = BSP implementation + a thin project shell in `src/ports/<arch>/`. Details: [docs/architecture.md](docs/architecture.md).
 
-## 图标（assets/icons.h）
+## Regenerating assets
 
-界面图标来自 KlipperScreen 的 material-dark 主题（GPL-3.0），SVG 原件在 `src/ui/assets/svg/`，
-经 resvg 渲染 + LVGLImage.py 转成 A8 alpha 图（体积小，运行时用 `theme_img()` 的 recolor 任意着色）：
+- **CJK fonts** (required after changing any UI string): `python tools/fontgen/gen_fonts.py` — extracts non-ASCII literals from `src/ui` and rebuilds the subset fonts; otherwise you'll get □ boxes.
+- **Icons**: drop an SVG into `src/ui/assets/svg/`, add a line in `tools/icongen/gen_icons.mjs`, run `node tools/icongen/gen_icons.mjs`.
 
-```bash
-# 首次：装依赖（Node 端 resvg + Python 端 pypng/lz4）
-cd tools/icongen && npm install --registry=https://registry.npmmirror.com
-python -m venv .venv && .venv/Scripts/python -m pip install pypng lz4
-cd ../..
-# 新增/替换 SVG 后重新生成：
-node tools/icongen/gen_icons.mjs
-```
+## Credits
 
-## WiFi 配置
+- UI iconography adapted from [KlipperScreen](https://github.com/KlipperScreen/KlipperScreen) material-dark theme (GPL-3.0)
+- Boot animation technique inspired by [boot_animation](https://github.com/umeiko/boot_animation)
+- LVGL, ESP-IDF, esptool by their respective authors
 
-设置 → 无线网络：扫描 → 选 AP → 输密码 → 连接（转圈）→ toast 反馈。
-三端实现共用 `src/bsp/bsp_wifi.h` 轮询接口：
+## License
 
-- **ESP32**：`src/bsp/esp32/bsp_wifi_esp32.c`（esp_wifi 事件驱动）
-- **Windows**：`src/bsp/desktop/bsp_wifi_windows.c`（netsh wlan，自动适配中英文系统输出）
-- **Linux**：`src/bsp/desktop/bsp_wifi_linux.c`（nmcli，需 NetworkManager）
+GPL-3.0 (follows KlipperScreen icon assets).

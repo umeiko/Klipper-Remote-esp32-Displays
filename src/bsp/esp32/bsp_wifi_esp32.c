@@ -3,18 +3,78 @@
  * nvs/netif/event loop 在这里惰性初始化，bsp 显示部分不依赖网络。
  */
 #include "../bsp_wifi.h"
+#include "../bsp.h"
 
 #include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <strings.h>
+#include <time.h>
+#include <sys/time.h>
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_netif.h"
+#include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #define TAG "bsp_wifi"
 #define SCAN_MAX 16
 #define RECONNECT_DELAY_US (2 * 1000 * 1000)
+
+/* 时间来源完全走内网：Moonraker（Tornado）HTTP 响应自带 Date 头（GMT），
+   不依赖外网 NTP。时区固定 CST-8（中国标准时间）。 */
+static esp_err_t http_date_cb(esp_http_client_event_t *evt)
+{
+    if (evt->event_id == HTTP_EVENT_ON_HEADER && evt->header_key &&
+        strcasecmp(evt->header_key, "Date") == 0) {
+        struct tm tmv = {0};
+        /* "Wed, 04 Sep 2026 01:35:22 GMT" */
+        if (strptime(evt->header_value, "%a, %d %b %Y %H:%M:%S", &tmv)) {
+            /* newlib 无 timegm：临时切 UTC 求 epoch 再切回 CST-8 */
+            setenv("TZ", "UTC0", 1); tzset();
+            time_t t = mktime(&tmv);
+            setenv("TZ", "CST-8", 1); tzset();
+            if (t > 0) {
+                struct timeval tv = { .tv_sec = t, .tv_usec = 0 };
+                settimeofday(&tv, NULL);
+                ESP_LOGI(TAG, "time synced from moonraker: %s", evt->header_value);
+            }
+        }
+    }
+    return ESP_OK;
+}
+
+static void time_sync_task(void *arg)
+{
+    char *url = arg;   /* 由调用方 malloc，这里释放 */
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .event_handler = http_date_cb,
+        .timeout_ms = 3000,
+    };
+    esp_http_client_handle_t c = esp_http_client_init(&cfg);
+    if (c) {
+        if (esp_http_client_perform(c) != ESP_OK)
+            ESP_LOGW(TAG, "time sync http failed");
+        esp_http_client_cleanup(c);
+    }
+    free(url);
+    vTaskDelete(NULL);
+}
+
+void bsp_time_sync_from_host(const char *host, uint16_t port)
+{
+    char *url = malloc(96);
+    if (!url) return;
+    snprintf(url, 96, "http://%s:%u/", host, (unsigned)port);
+    /* 异步：HTTP 最多阻塞 3s，不能卡在 websocket 事件回调里 */
+    if (xTaskCreate(time_sync_task, "tsync", 4096, url, 5, NULL) != pdPASS)
+        free(url);
+}
 
 static struct {
     bool            inited;
@@ -43,6 +103,9 @@ static void reconnect_cb(void *arg)
 static void ensure_init(void)
 {
     if (W.inited) return;
+
+    setenv("TZ", "CST-8", 1);   /* 显示时区：中国标准时间（时间源见 bsp_time_sync_from_host） */
+    tzset();
 
     /* nvs 可能被写满/版本变更，抹掉重来（KlipperScreen 同款处理） */
     esp_err_t err = nvs_flash_init();

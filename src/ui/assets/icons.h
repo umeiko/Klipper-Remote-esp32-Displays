@@ -24,6 +24,9 @@ LV_IMAGE_DECLARE(img_wifi_4);      /* 18px 信号四档：强→弱 */
 LV_IMAGE_DECLARE(img_wifi_3);
 LV_IMAGE_DECLARE(img_wifi_2);
 LV_IMAGE_DECLARE(img_wifi_1);
+LV_IMAGE_DECLARE(img_link_off);    /* 16px 断链：状态卡 Moonraker 断连 */
+LV_IMAGE_DECLARE(img_link);        /* 16px 链接：状态卡已连接 */
+LV_IMAGE_DECLARE(img_alert_circle);/* 16px 感叹号圆：状态卡 Klipper 异常 */
 
 #ifdef __cplusplus
 }

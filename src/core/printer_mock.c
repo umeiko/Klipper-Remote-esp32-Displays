@@ -30,6 +30,9 @@ static struct {
 };
 
 printer_state_t printer_state(void) { return P.state; }
+
+/* 截图演示用：直接注入状态（desktop 端 main.c 调用） */
+void printer_mock_set_state(printer_state_t s) { P.state = s; }
 float printer_temp_ext(void)  { return P.ext; }
 float printer_temp_bed(void)  { return P.bed; }
 float printer_target_ext(void){ return P.ext_t; }

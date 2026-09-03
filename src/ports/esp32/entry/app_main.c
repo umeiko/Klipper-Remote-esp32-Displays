@@ -1,6 +1,7 @@
 #include "bsp.h"
 #include "bsp_wifi.h"
 #include "ui_app.h"
+#include "boot_anim.h"
 #include "app_settings.h"
 
 void debug_cli_start(void);
@@ -10,8 +11,12 @@ void app_main(void)
     bsp_init();            /* 显示 + 触摸 + LVGL 任务（核 1） */
 
     bsp_lvgl_lock();
+    boot_anim_play(bsp_lcd_push, bsp_delay_ms);   /* 「Umeko」开机动画（~2.5s） */
     ui_app_create();       /* 与 desktop 后端共享的同一份 UI 代码 */
     bsp_lvgl_unlock();
+
+    bsp_set_brightness(settings_load_brightness());   /* 背光偏好（klipperscreen.conf） */
+    bsp_set_screen_timeout(settings_load_screen_off());   /* 自动息屏（0=永不） */
 
     /* WiFi 自动回连：有 network.conf 就用保存的凭据连接（Moonraker 客户端
        由 printer_model 的 2s 轮询在 WiFi 就绪后拉起） */

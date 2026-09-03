@@ -5,6 +5,7 @@
 #include "panel_mgr.h"
 #include "printer.h"
 #include "bsp_wifi.h"
+#include <time.h>
 
 static lv_obj_t *bar;
 static lv_obj_t *btn_back;
@@ -12,6 +13,7 @@ static lv_obj_t *lbl_title;
 static lv_obj_t *lbl_wifi;
 static lv_obj_t *lbl_ext;
 static lv_obj_t *lbl_bed;
+static int show_clock;   /* 主面板（无返回键且无标题）→ 标题位显示时钟 */
 
 static void back_cb(lv_event_t *e)
 {
@@ -59,7 +61,8 @@ void titlebar_init(void)
 
 void titlebar_set(const char *title, int show_back)
 {
-    lv_label_set_text(lbl_title, ui_tr(title));
+    show_clock = !show_back && (!title || !title[0]);
+    if (!show_clock) lv_label_set_text(lbl_title, ui_tr(title));
     if (show_back) lv_obj_remove_flag(btn_back, LV_OBJ_FLAG_HIDDEN);
     else           lv_obj_add_flag(btn_back, LV_OBJ_FLAG_HIDDEN);
     /* 无返回键时整体左移 */
@@ -69,6 +72,17 @@ void titlebar_set(const char *title, int show_back)
 
 void titlebar_tick(void)
 {
+    if (show_clock) {
+        /* 主面板标题位显示 HH:MM；SNTP 未同步到时先占位 */
+        time_t t = time(NULL);
+        if (t < 1767225600) {   /* 2026-01-01，小于此值认为未同步 */
+            lv_label_set_text(lbl_title, "--:--");
+        } else {
+            struct tm *tmv = localtime(&t);   /* 可移植性优先（MinGW 无 localtime_r），LVGL 单线程调用 */
+            if (tmv)
+                lv_label_set_text_fmt(lbl_title, "%02d:%02d", tmv->tm_hour, tmv->tm_min);
+        }
+    }
     lv_label_set_text_fmt(lbl_ext, "%d" "\xC2\xB0", (int)(printer_temp_ext() + 0.5f));
     lv_label_set_text_fmt(lbl_bed, "%d" "\xC2\xB0", (int)(printer_temp_bed() + 0.5f));
 

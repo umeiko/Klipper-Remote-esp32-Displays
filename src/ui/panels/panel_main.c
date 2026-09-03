@@ -7,11 +7,12 @@
 #include "../panel_mgr.h"
 #include "../ui_anim.h"
 #include "printer.h"
+#include "app_settings.h"
 #include "../widgets/confirm.h"
 #include <stdio.h>
 
 static lv_obj_t *lbl_state;
-static lv_obj_t *dot_state;
+static lv_obj_t *img_state;
 static lv_obj_t *lbl_file;
 static lv_obj_t *card_status;
 
@@ -55,17 +56,43 @@ static void on_restart(lv_event_t *e)
 
 static void update_state(void)
 {
-    static const struct { const char *text; uint32_t col; } st[] = {
-        [PRINTER_STATE_STANDBY]      = {"空闲",     THEME_COL_TEXT_DIM},
-        [PRINTER_STATE_PRINTING]     = {"打印中",   THEME_COL_OK},
-        [PRINTER_STATE_PAUSED]       = {"已暂停",   THEME_COL_WARN},
-        [PRINTER_STATE_COMPLETE]     = {"打印完成", THEME_COL_ACCENT},
-        [PRINTER_STATE_DISCONNECTED] = {"未连接",   THEME_COL_TEXT_DIM},
-        [PRINTER_STATE_ERROR]        = {"Klipper 异常", THEME_COL_ERROR},
+    static const char *st_text[] = {
+        [PRINTER_STATE_STANDBY]  = "空闲",
+        [PRINTER_STATE_PRINTING] = "打印中",
+        [PRINTER_STATE_PAUSED]   = "已暂停",
+        [PRINTER_STATE_COMPLETE] = "打印完成",
     };
     printer_state_t s = printer_state();
-    lv_label_set_text(lbl_state, TR(st[s].text));
-    lv_obj_set_style_bg_color(dot_state, theme_col(st[s].col), 0);
+
+    /* 整卡按状态着色：断连=黄 + 断链图标；Klipper 异常=红 + 感叹号；已连接=绿 + 链接图标 */
+    uint32_t card_col;
+    const lv_image_dsc_t *icon;
+    switch (s) {
+    case PRINTER_STATE_DISCONNECTED: card_col = THEME_COL_WARN;  icon = &img_link_off;     break;
+    case PRINTER_STATE_ERROR:        card_col = THEME_COL_ERROR; icon = &img_alert_circle; break;
+    default:                         card_col = THEME_COL_OK;    icon = &img_link;         break;
+    }
+    lv_obj_set_style_bg_color(card_status, theme_col(card_col), 0);
+    lv_image_set_src(img_state, icon);
+    lv_obj_set_style_image_recolor(img_state, theme_col(THEME_COL_BG), 0);
+    lv_obj_set_style_text_color(lbl_state, theme_col(THEME_COL_BG), 0);
+    lv_obj_set_style_text_color(lbl_file, theme_col(THEME_COL_BG), 0);
+
+    if (s == PRINTER_STATE_DISCONNECTED) {
+        /* 断连高可见性：附目标地址 */
+        moonraker_conf_t mc;
+        settings_load_moonraker(&mc);
+        char buf[96];
+        snprintf(buf, sizeof(buf), "%s: %.40s:%u", TR("未连接 Moonraker"),
+                 mc.valid ? mc.host : "?", mc.port);
+        lv_label_set_text(lbl_state, buf);
+        lv_obj_set_style_text_font(lbl_state, THEME_FONT_S, 0);
+        lv_label_set_text(lbl_file, "");
+        return;
+    }
+
+    lv_obj_set_style_text_font(lbl_state, THEME_FONT_M, 0);
+    lv_label_set_text(lbl_state, s == PRINTER_STATE_ERROR ? TR("Klipper 异常") : TR(st_text[s]));
     if (s == PRINTER_STATE_PRINTING || s == PRINTER_STATE_PAUSED) {
         char buf[48];
         snprintf(buf, sizeof(buf), "%s  %d.%d%%", printer_filename(),
@@ -88,12 +115,9 @@ static lv_obj_t *create(void)
     lv_obj_add_flag(card_status, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(card_status, on_status_click, LV_EVENT_CLICKED, NULL);
 
-    dot_state = lv_obj_create(card_status);
-    lv_obj_remove_style_all(dot_state);
-    lv_obj_set_size(dot_state, 10, 10);
-    lv_obj_set_style_radius(dot_state, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_opa(dot_state, LV_OPA_COVER, 0);
-    lv_obj_align(dot_state, LV_ALIGN_LEFT_MID, 2, 0);
+    /* 状态图标（链接/断链/感叹号，着色随卡片底色反色） */
+    img_state = theme_img(card_status, &img_link, THEME_COL_BG);
+    lv_obj_align(img_state, LV_ALIGN_LEFT_MID, 0, 0);
 
     lbl_state = theme_label(card_status, "", THEME_FONT_M, THEME_COL_TEXT);
     lv_obj_align(lbl_state, LV_ALIGN_LEFT_MID, 18, 0);
@@ -141,7 +165,7 @@ static lv_obj_t *create(void)
 }
 
 panel_def_t panel_main_def = {
-    .name = "main", .title = "Klipper Remote",
+    .name = "main", .title = "",   /* 空标题 → 标题栏显示时钟 */
     .create = create,
     .on_show = update_state,
     .on_tick = update_state,

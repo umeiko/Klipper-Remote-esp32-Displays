@@ -203,6 +203,7 @@ static void on_subscribe_result(cJSON *result)
     state = MOONRAKER_READY;
     post_to_lvgl(set_online_in_lvgl, (void *)1);
     ESP_LOGI(TAG, "subscribe done, READY");
+    bsp_time_sync_from_host(conf.host, conf.port);   /* 内网对时：取 Moonraker HTTP Date */
 }
 
 static void handshake_step_subscribe(void)

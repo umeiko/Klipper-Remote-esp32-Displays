@@ -9,6 +9,7 @@
 
 #include "cJSON.h"
 #include "driver/gpio.h"
+#include "driver/ledc.h"
 #include "driver/spi_master.h"
 #include "esp_check.h"
 #include "esp_heap_caps.h"
@@ -18,6 +19,7 @@
 #include "esp_lcd_touch_xpt2046.h"
 #include "esp_littlefs.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
@@ -223,6 +225,108 @@ static void touch_cal_run(void)
     for (int i = 0; i < 50; i++) cal_pump();
 }
 
+/* ---------- 开机动画推屏（boot_anim 经 bsp.h 调用，LVGL 锁由调用方持有） ---------- */
+/* esp_lcd_panel_draw_bitmap 是 DMA 异步传输：必须等 on_color_trans_done 再释放/复用
+   像素缓冲，否则 DMA 读到被覆写的内存，画面出现 Y 向条状撕裂 */
+static SemaphoreHandle_t lcd_trans_done;
+
+static bool on_color_trans_done(esp_lcd_panel_io_handle_t io,
+                                esp_lcd_panel_io_event_data_t *edata, void *user_ctx)
+{
+    LV_UNUSED(io); LV_UNUSED(edata); LV_UNUSED(user_ctx);
+    BaseType_t hp = pdFALSE;
+    xSemaphoreGiveFromISR(lcd_trans_done, &hp);
+    return hp == pdTRUE;
+}
+
+void bsp_lcd_push(int x, int y, int w, int h, const uint16_t *px)
+{
+    /* ILI9341 走 SPI 要求先发像素高字节：拷一份交换字节再推（动画核心缓冲要复用，不能就地改） */
+    size_t n = (size_t)w * h;
+    uint16_t *tmp = malloc(n * 2);
+    if (!tmp) return;
+    for (size_t i = 0; i < n; i++) tmp[i] = (uint16_t)((px[i] >> 8) | (px[i] << 8));
+    xSemaphoreTake(lcd_trans_done, 0);   /* 排掉 LVGL flush 可能留下的存量信号 */
+    esp_lcd_panel_draw_bitmap(panel_handle, x, y, x + w, y + h, tmp);
+    xSemaphoreTake(lcd_trans_done, pdMS_TO_TICKS(500));
+    free(tmp);
+}
+
+void bsp_delay_ms(uint32_t ms)
+{
+    vTaskDelay(pdMS_TO_TICKS(ms));
+}
+
+/* 背光亮度 0-100（0 也会留 5% 兜底，避免黑屏后摸不到设置） */
+static uint8_t bl_duty = 255;
+static int     bl_pct = 100;
+
+void bsp_set_brightness(int pct)
+{
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    if (pct > 0 && pct < 5) pct = 5;
+    bl_pct = pct;
+    bl_duty = (uint8_t)(pct * 255 / 100);
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, bl_duty);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+}
+
+/* ---------- 自动息屏：超时灭背光，触摸唤醒 ---------- */
+static uint32_t so_after_s;                     /* 0 = 永不 */
+static bool     screen_off;
+static int64_t  last_act_us;
+
+void bsp_set_screen_timeout(uint32_t sec)
+{
+    so_after_s = sec;
+    last_act_us = esp_timer_get_time();
+    if (screen_off) {                           /* 改设置时若正息屏，先唤醒 */
+        screen_off = false;
+        bsp_set_brightness(bl_pct);
+    }
+}
+
+static void screen_activity(void)               /* 触摸回调里打点 + 唤醒 */
+{
+    last_act_us = esp_timer_get_time();
+    if (screen_off) {
+        screen_off = false;
+        bsp_set_brightness(bl_pct);
+    }
+}
+
+static void screen_off_check(void)              /* lvgl 任务里周期检查 */
+{
+    if (screen_off || !so_after_s) return;
+    if (esp_timer_get_time() - last_act_us > (int64_t)so_after_s * 1000000) {
+        screen_off = true;
+        ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 0);
+        ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+    }
+}
+
+/* LEDC 硬件渐变到灭（阻塞至完成）。语言切换重启前调用，避免生硬跳变 */
+void bsp_fade_out(uint32_t ms)
+{
+    static bool fade_installed;
+    if (!fade_installed) {
+        ledc_fade_func_install(0);
+        fade_installed = true;
+    }
+    ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 0, ms);
+    ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, LEDC_FADE_WAIT_DONE);
+    bl_duty = 0;
+
+    /* 渐暗后把 GRAM 整屏推黑：否则面板寄存器残留旧帧，下次上电瞬间会闪一下旧画面 */
+    static uint16_t black[LCD_H_RES * 40];   /* 静态零初始化即全黑（RGB565 0x0000） */
+    for (int y = 0; y < LCD_V_RES; y += 40) {
+        xSemaphoreTake(lcd_trans_done, 0);
+        esp_lcd_panel_draw_bitmap(panel_handle, 0, y, LCD_H_RES, y + 40, black);
+        xSemaphoreTake(lcd_trans_done, pdMS_TO_TICKS(500));
+    }
+}
+
 /* ---------- LVGL 对接 ---------- */
 static void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 {
@@ -249,6 +353,7 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
 
     uint16_t rx, ry;
     if (tp_read_raw(&rx, &ry)) {
+        screen_activity();          /* 息屏唤醒 + 重置超时计时 */
         last_rx = rx;
         last_ry = ry;
         last_valid_us = esp_timer_get_time();
@@ -276,6 +381,7 @@ static void lvgl_task(void *arg)
         bsp_lvgl_lock();
         lv_timer_handler();
         bsp_lvgl_unlock();
+        screen_off_check();
         vTaskDelay(pdMS_TO_TICKS(5));
     }
 }
@@ -303,12 +409,24 @@ void bsp_init(void)
     };
     ESP_ERROR_CHECK(esp_vfs_littlefs_register(&fs_conf));
 
-    /* 背光 GPIO */
-    gpio_config_t bk = {
-        .pin_bit_mask = 1ULL << PIN_LCD_BL,
-        .mode = GPIO_MODE_OUTPUT,
+    /* 背光：LEDC PWM（GPIO21，高电平点亮），亮度由 bsp_set_brightness 调节 */
+    ledc_timer_config_t bl_timer = {
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .duty_resolution = LEDC_TIMER_8_BIT,
+        .timer_num = LEDC_TIMER_0,
+        .freq_hz = 5000,
+        .clk_cfg = LEDC_AUTO_CLK,
     };
-    ESP_ERROR_CHECK(gpio_config(&bk));
+    ESP_ERROR_CHECK(ledc_timer_config(&bl_timer));
+    ledc_channel_config_t bl_ch = {
+        .gpio_num = PIN_LCD_BL,
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .channel = LEDC_CHANNEL_0,
+        .timer_sel = LEDC_TIMER_0,
+        .duty = 255,
+        .hpoint = 0,
+    };
+    ESP_ERROR_CHECK(ledc_channel_config(&bl_ch));
 
     /* SPI2 总线（LCD） */
     spi_bus_config_t buscfg = {
@@ -344,6 +462,11 @@ void bsp_init(void)
     };
     ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)SPI2_HOST, &io_cfg, &io_handle));
 
+    /* 传输完成信号量：bsp_lcd_push 等待 DMA 完成用 */
+    lcd_trans_done = xSemaphoreCreateBinary();
+    esp_lcd_panel_io_callbacks_t io_cbs = { .on_color_trans_done = on_color_trans_done };
+    ESP_ERROR_CHECK(esp_lcd_panel_io_register_event_callbacks(io_handle, &io_cbs, NULL));
+
     esp_lcd_panel_dev_config_t panel_cfg = {
         .reset_gpio_num = PIN_LCD_RST,
         .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,   /* 面板 BGR 原生（对照 TFT_eSPI ILI9341_2 驱动实测） */
@@ -356,7 +479,6 @@ void bsp_init(void)
     ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel_handle, true));
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, true, true));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
-    ESP_ERROR_CHECK(gpio_set_level(PIN_LCD_BL, 1));
 
     /* 触摸 XPT2046：取原始 ADC，不做驱动层坐标换算/镜像（由两点校准吸收） */
     esp_lcd_panel_io_handle_t tp_io;
@@ -397,4 +519,12 @@ void bsp_init(void)
     xTaskCreatePinnedToCore(lvgl_task, "lvgl", 12288, NULL, 4, NULL, 1);
 
     ESP_LOGI(TAG, "BSP ready (2432S028R, %dx%d)", LCD_H_RES, LCD_V_RES);
+}
+
+void bsp_restart(void)
+{
+    /* 先把「重启中」toast 画出来再重启 */
+    lv_refr_now(NULL);
+    vTaskDelay(pdMS_TO_TICKS(800));
+    esp_restart();
 }

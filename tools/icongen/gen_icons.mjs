@@ -31,6 +31,9 @@ const ICONS = [
   ['wifi_good',      18, 'wifi_3'],
   ['wifi_fair',      18, 'wifi_2'],
   ['wifi_weak',      18, 'wifi_1'],
+  ['link_off',       16, 'link_off'],      // 主菜单状态卡：Moonraker 断连
+  ['link',           16, 'link'],          // 主菜单状态卡：已连接
+  ['alert_circle',   16, 'alert_circle'],  // 主菜单状态卡：Klipper 异常
 ];
 
 mkdirSync(OUT_PNG, { recursive: true });

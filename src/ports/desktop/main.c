@@ -7,6 +7,7 @@
 #include "bsp.h"
 #include "ui_app.h"
 #include "printer.h"
+#include "boot_anim.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -86,6 +87,7 @@ static int save_bmp(const char *path)
 int main(int argc, char **argv)
 {
     bsp_init();
+    boot_anim_play(bsp_lcd_push, bsp_delay_ms);   /* 「Umeko」开机动画（~2.5s） */
     ui_app_create();
 
     /* 截图模式: <毫秒> <out.bmp> [面板名] */
@@ -100,6 +102,15 @@ int main(int argc, char **argv)
             printer_print_start("3dbenchy.gcode");   /* 演示打印中状态 */
             ui_app_open("job_status");
         }
+        if (argc >= 5 && strcmp(argv[4], "offline") == 0) {
+            extern void printer_mock_set_state(printer_state_t);
+            printer_mock_set_state(PRINTER_STATE_DISCONNECTED);  /* 演示断连状态卡 */
+        }
+        if (argc >= 5 && strcmp(argv[4], "error") == 0) {
+            extern void printer_mock_set_state(printer_state_t);
+            printer_mock_set_state(PRINTER_STATE_ERROR);         /* 演示 Klipper 异常红卡 */
+        }
+
     }
 
     uint32_t start = lv_tick_get();
