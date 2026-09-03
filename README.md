@@ -88,9 +88,9 @@ Adding a new board of the same architecture = one file in `src/bsp/<arch>/`. A w
 ## Credits
 
 - UI iconography adapted from [KlipperScreen](https://github.com/KlipperScreen/KlipperScreen) material-dark theme (GPL-3.0)
-- Boot animation technique inspired by [boot_animation](https://github.com/umeiko/boot_animation)
+
 - LVGL, ESP-IDF, esptool by their respective authors
 
 ## License
 
-GPL-3.0 (follows KlipperScreen icon assets).
+GPL-3.0.

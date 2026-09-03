@@ -27,8 +27,8 @@ else
 fi
 
 echo "Flashing to $PORT ..."
-$ESP --chip esp32 -b 460800 --before default_reset --after hard_reset \
-  write_flash --flash_mode dio --flash_size 4MB --flash_freq 80m \
+$ESP --chip esp32 -b 460800 --before default-reset --after hard-reset \
+  write-flash --flash-mode dio --flash-size 4MB --flash-freq 80m \
   0x1000 bootloader.bin 0x8000 partition-table.bin 0x10000 klipper_remote_display.bin
 
 echo "Done. Press RESET or replug USB. First boot takes ~3s (boot animation)."

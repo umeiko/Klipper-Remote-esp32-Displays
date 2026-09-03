@@ -40,6 +40,14 @@ jobs:
           name: firmware-bins
           path: dist
 
+      - name: Flatten artifact layout
+        # upload-artifact 保留目录层级，下载后需拍平成刷机脚本期望的平铺结构
+        run: |
+          mv dist/bootloader/bootloader.bin dist/
+          mv dist/partition_table/partition-table.bin dist/
+          rmdir dist/bootloader dist/partition_table
+          ls -la dist
+
       - name: Download esptool (Windows standalone)
         run: |
           TAG=$(curl -s https://api.github.com/repos/espressif/esptool/releases/latest | jq -r .tag_name)
@@ -48,17 +56,20 @@ jobs:
           unzip -o /tmp/esptool.zip -d /tmp/esptool
           find /tmp/esptool -name esptool.exe -exec cp {} dist/ \;
 
-      - name: Assemble flashable zip
+      - name: Assemble flashable zip (for Release)
         run: |
           cp tools/release/flash.bat tools/release/flash.sh dist/
+          chmod +x dist/flash.sh
           ZIP="klipper-remote-esp32-${GITHUB_REF_NAME}.zip"
           (cd dist && zip -r "../$ZIP" .)
           echo "ZIP=$ZIP" >> "$GITHUB_ENV"
 
+      # 直接把 dist 内容作为 artifact：GitHub 下载时会打一层 zip，
+      # 解压后即是平铺的刷机文件，不再出现"zip 套 zip"
       - uses: actions/upload-artifact@v4
         with:
           name: klipper-remote-esp32-${{ github.ref_name }}
-          path: klipper-remote-esp32-*.zip
+          path: dist/
 
       - name: Release (on version tag)
         if: startsWith(github.ref, 'refs/tags/v')
