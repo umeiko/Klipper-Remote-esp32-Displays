@@ -20,9 +20,7 @@ bool klipper_emergency_stop(void);      /* printer.emergency_stop (M112 语义) 
 bool klipper_restart(void);             /* printer.restart（host restart） */
 bool klipper_firmware_restart(void);    /* printer.firmware_restart */
 
-/* 预留：文件列表（panel_files 真实化时接回调），本期未使用 */
-typedef void (*klipper_files_cb)(const char *json_result, void *ud);
-bool klipper_files_list(klipper_files_cb cb, void *ud);
+bool klipper_file_delete(const char *path);   /* server.files.delete，path 如 "gcodes/a.gcode" */
 
 #ifdef __cplusplus
 }

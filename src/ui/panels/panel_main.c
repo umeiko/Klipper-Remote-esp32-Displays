@@ -2,6 +2,7 @@
  * 主菜单：状态卡片 + 功能网格 + 急停/重启（对标 KlipperScreen main_menu）
  */
 #include "../theme.h"
+#include "../lang.h"
 #include "../assets/icons.h"
 #include "../panel_mgr.h"
 #include "../ui_anim.h"
@@ -63,7 +64,7 @@ static void update_state(void)
         [PRINTER_STATE_ERROR]        = {"Klipper 异常", THEME_COL_ERROR},
     };
     printer_state_t s = printer_state();
-    lv_label_set_text(lbl_state, st[s].text);
+    lv_label_set_text(lbl_state, TR(st[s].text));
     lv_obj_set_style_bg_color(dot_state, theme_col(st[s].col), 0);
     if (s == PRINTER_STATE_PRINTING || s == PRINTER_STATE_PAUSED) {
         char buf[48];

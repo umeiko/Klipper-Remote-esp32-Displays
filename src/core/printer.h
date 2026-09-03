@@ -61,6 +61,21 @@ void printer_print_cancel(void);
 void printer_emergency_stop(void);      /* 对应 M112：立即停止 */
 void printer_firmware_restart(void);    /* 对应 FIRMWARE_RESTART */
 
+/* ---- GCode 文件（历史打印文件面板） ---- */
+typedef struct {
+    char     name[96];     /* 相对 gcodes 根的路径（可能含子目录） */
+    uint32_t size;         /* 字节 */
+    double   modified;     /* epoch 秒 */
+} printer_file_t;
+
+/* 异步刷新 gcodes 文件列表。回调在 LVGL 上下文执行；
+ * files 为堆数组（回调负责 free），count<=0 表示离线/失败/无文件。
+ * 返回 false = 请求未发出（离线或上一个请求未完成）。 */
+typedef void (*printer_files_cb)(printer_file_t *files, int count, void *ud);
+bool printer_files_refresh(printer_files_cb cb, void *ud);
+
+void printer_file_delete(const char *name);   /* 删除 gcodes 下的文件 */
+
 #ifdef __cplusplus
 }
 #endif

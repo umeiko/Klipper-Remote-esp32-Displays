@@ -3,6 +3,7 @@
  * 连接中转圈弹层 → toast 反馈结果。系统调用走 bsp_wifi（三端实现）。
  */
 #include "../theme.h"
+#include "../lang.h"
 #include "../ui_anim.h"
 #include "../panel_mgr.h"
 #include "../assets/icons.h"
@@ -26,7 +27,7 @@ static bsp_wifi_ap_t aps[16];       /* 静态：行点击事件要引用，不�
 
 static void show_hint(const char *text)
 {
-    lv_label_set_text(lbl_hint, text);
+    lv_label_set_text(lbl_hint, ui_tr(text));
     lv_obj_remove_flag(lbl_hint, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -80,7 +81,7 @@ static void start_connect(const char *ssid, const char *pwd)
     lv_obj_set_style_arc_color(sp, theme_col(THEME_COL_ACCENT), LV_PART_INDICATOR);
 
     char msg[64];
-    snprintf(msg, sizeof(msg), "正在连接 %s", sel_ssid);
+    snprintf(msg, sizeof(msg), TR("正在连接 %s"), sel_ssid);
     theme_label(card, msg, THEME_FONT_S, THEME_COL_TEXT);
 }
 
@@ -123,7 +124,7 @@ static void open_password_dialog(const char *ssid)
     lv_obj_set_style_bg_opa(pwd_overlay, LV_OPA_COVER, 0);
 
     char title[64];
-    snprintf(title, sizeof(title), "连接到 %s", ssid);
+    snprintf(title, sizeof(title), TR("连接到 %s"), ssid);
     lv_obj_t *lbl = theme_label(pwd_overlay, title, THEME_FONT_M, THEME_COL_TEXT);
     lv_obj_align(lbl, LV_ALIGN_TOP_MID, 0, 8);
 
@@ -131,7 +132,7 @@ static void open_password_dialog(const char *ssid)
     lv_obj_set_style_text_font(ta_pwd, THEME_FONT_S, 0);   /* 占位符是中文，默认 montserrat 会变方框 */
     lv_textarea_set_one_line(ta_pwd, true);
     /* 不回显掩码：电阻屏点按本来就难，明文便于确认输没输对 */
-    lv_textarea_set_placeholder_text(ta_pwd, "密码");
+    lv_textarea_set_placeholder_text(ta_pwd, TR("密码"));
     lv_obj_set_width(ta_pwd, 300);
     lv_obj_align(ta_pwd, LV_ALIGN_TOP_MID, 0, 34);
 
@@ -207,7 +208,7 @@ static void tick(void)
         switch (bsp_wifi_status()) {
         case BSP_WIFI_CONNECTED: {
             char msg[64];
-            snprintf(msg, sizeof(msg), "已连接 %s", sel_ssid);
+            snprintf(msg, sizeof(msg), TR("已连接 %s"), sel_ssid);
             ui_toast(msg, THEME_COL_OK);
             /* 凭据落盘 network.conf，下次开机自动回连 */
             wifi_conf_t wc = {0};

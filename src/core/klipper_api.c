@@ -46,9 +46,11 @@ bool klipper_emergency_stop(void)   { return moonraker_send_rpc("printer.emergen
 bool klipper_restart(void)          { return moonraker_send_rpc("printer.restart", NULL); }
 bool klipper_firmware_restart(void) { return moonraker_send_rpc("printer.firmware_restart", NULL); }
 
-bool klipper_files_list(klipper_files_cb cb, void *ud)
+bool klipper_file_delete(const char *path)
 {
-    /* 预留：server.files.list {"root":"gcodes"} 带回调；panel_files 真实化时实现 */
-    (void)cb; (void)ud;
-    return false;
+    char esc[256];
+    char params[320];
+    json_escape(path, esc, sizeof(esc));
+    snprintf(params, sizeof(params), "{\"path\":\"%s\"}", esc);
+    return moonraker_send_rpc("server.files.delete", params);
 }

@@ -1,5 +1,6 @@
 #include "titlebar.h"
 #include "theme.h"
+#include "lang.h"
 #include "assets/icons.h"
 #include "panel_mgr.h"
 #include "printer.h"
@@ -31,7 +32,7 @@ void titlebar_init(void)
     lv_obj_align(bar, LV_ALIGN_TOP_MID, 0, 0);
 
     btn_back = theme_button(bar, LV_SYMBOL_LEFT, NULL, 0);
-    lv_obj_set_size(btn_back, 40, THEME_TITLEBAR_H - 6);
+    lv_obj_set_size(btn_back, 64, THEME_TITLEBAR_H - 4);   /* 宽一点好点（电阻屏精度差） */
     lv_obj_align(btn_back, LV_ALIGN_LEFT_MID, 0, 0);
     lv_obj_add_event_cb(btn_back, back_cb, LV_EVENT_CLICKED, NULL);
 
@@ -58,12 +59,12 @@ void titlebar_init(void)
 
 void titlebar_set(const char *title, int show_back)
 {
-    lv_label_set_text(lbl_title, title);
+    lv_label_set_text(lbl_title, ui_tr(title));
     if (show_back) lv_obj_remove_flag(btn_back, LV_OBJ_FLAG_HIDDEN);
     else           lv_obj_add_flag(btn_back, LV_OBJ_FLAG_HIDDEN);
     /* 无返回键时整体左移 */
-    lv_obj_align(lbl_wifi, LV_ALIGN_LEFT_MID, show_back ? 46 : 8, 0);
-    lv_obj_align(lbl_title, LV_ALIGN_LEFT_MID, show_back ? 72 : 32, 0);
+    lv_obj_align(lbl_wifi, LV_ALIGN_LEFT_MID, show_back ? 72 : 8, 0);
+    lv_obj_align(lbl_title, LV_ALIGN_LEFT_MID, show_back ? 100 : 32, 0);
 }
 
 void titlebar_tick(void)

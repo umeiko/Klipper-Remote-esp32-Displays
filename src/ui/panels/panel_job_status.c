@@ -1,22 +1,32 @@
 /*
  * 打印状态：进度环 + 文件名 + 时间 + 控制按钮（对标 KlipperScreen job_status 简化版）
+ * 打印中/暂停：暂停 / 取消 / 急停；
+ * 已完成/已取消/出错：状态文案取代百分比，底部变为 重启 / 主菜单。
  */
 #include "../theme.h"
+#include "../lang.h"
 #include "../ui_anim.h"
 #include "../panel_mgr.h"
 #include "printer.h"
 #include "../widgets/confirm.h"
 #include <stdio.h>
+#include <string.h>
 
 static lv_obj_t *arc;
 static lv_obj_t *lbl_pct;
+static lv_obj_t *lbl_state;      /* 完成态文案（打印完成/已取消/打印出错），居中于进度环 */
 static lv_obj_t *lbl_file;
 static lv_obj_t *lbl_time;
 static lv_obj_t *btn_pause;
 static lv_obj_t *lbl_pause_icon;
 static lv_obj_t *lbl_pause_text;
 static lv_obj_t *btn_cancel;
+static lv_obj_t *btn_estop;
+static lv_obj_t *btn_restart;    /* 完成态：重启（重打同一文件） */
+static lv_obj_t *btn_home;       /* 完成态：主菜单 */
 static int cur_shown_pct10 = 0;   /* 当前显示的千分比（动画起点） */
+static bool job_active = false;   /* 面板生命周期内见过活动任务（区分"已取消"与纯空闲） */
+static char last_file[64];        /* 取消后 print_stats.filename 可能清空，留档给重启用 */
 
 static void arc_anim_cb(void *obj, int32_t v)
 {
@@ -32,12 +42,26 @@ static void fmt_time(char *buf, size_t n, uint32_t s)
 static void update_ui(void)
 {
     printer_state_t s = printer_state();
-    lv_label_set_text(lbl_file, printer_filename()[0] ? printer_filename() : "空闲");
+    const char *fname = printer_filename();
+    if (fname[0]) {   /* 留档：取消/完成后 klippy 可能清空 filename */
+        strncpy(last_file, fname, sizeof(last_file) - 1);
+        last_file[sizeof(last_file) - 1] = 0;
+    }
+    const char *disp = fname[0] ? fname : last_file;
+    lv_label_set_text(lbl_file, disp[0] ? disp : TR("空闲"));
+
+    int printing = (s == PRINTER_STATE_PRINTING);
+    int paused = (s == PRINTER_STATE_PAUSED);
+    if (printing || paused) job_active = true;
+
+    /* 完成态：明确 complete，或见过活动任务后回到 standby/error（= 已取消/出错） */
+    int finished = (s == PRINTER_STATE_COMPLETE) ||
+                   (job_active && (s == PRINTER_STATE_STANDBY || s == PRINTER_STATE_ERROR));
 
     char t1[16], t2[16], buf[48];
     fmt_time(t1, sizeof(t1), printer_print_elapsed_s());
     fmt_time(t2, sizeof(t2), printer_print_eta_s());
-    snprintf(buf, sizeof(buf), "已用 %s\n剩余 %s", t1, s == PRINTER_STATE_PRINTING ? t2 : "--:--:--");
+    snprintf(buf, sizeof(buf), TR("已用 %s\n剩余 %s"), t1, printing ? t2 : "--:--:--");
     lv_label_set_text(lbl_time, buf);
 
     int32_t target = printer_progress_permille();
@@ -46,16 +70,35 @@ static void update_ui(void)
         cur_shown_pct10 = target;
     }
 
-    int printing = (s == PRINTER_STATE_PRINTING);
-    int paused = (s == PRINTER_STATE_PAUSED);
-    lv_label_set_text(lbl_pause_icon, paused ? LV_SYMBOL_PLAY : LV_SYMBOL_PAUSE);
-    lv_label_set_text(lbl_pause_text, paused ? "继续" : "暂停");
-    if (printing || paused) {
-        lv_obj_remove_flag(btn_pause, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(btn_cancel, LV_OBJ_FLAG_HIDDEN);
-    } else {
+    if (finished) {
+        const char *txt; uint32_t col;
+        if (s == PRINTER_STATE_COMPLETE)      { txt = "打印完成"; col = THEME_COL_OK; }
+        else if (s == PRINTER_STATE_ERROR)    { txt = "打印出错"; col = THEME_COL_ERROR; }
+        else                                  { txt = "已取消";   col = THEME_COL_WARN; }
+        lv_label_set_text(lbl_state, ui_tr(txt));
+        lv_obj_set_style_text_color(lbl_state, theme_col(col), 0);
+        lv_obj_add_flag(lbl_pct, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(lbl_state, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(btn_pause, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(btn_cancel, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(btn_estop, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(btn_restart, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(btn_home, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_remove_flag(lbl_pct, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(lbl_state, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(btn_restart, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(btn_home, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(btn_estop, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(lbl_pause_icon, paused ? LV_SYMBOL_PLAY : LV_SYMBOL_PAUSE);
+        lv_label_set_text(lbl_pause_text, paused ? TR("继续") : TR("暂停"));
+        if (printing || paused) {
+            lv_obj_remove_flag(btn_pause, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_remove_flag(btn_cancel, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(btn_pause, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(btn_cancel, LV_OBJ_FLAG_HIDDEN);
+        }
     }
 }
 
@@ -72,7 +115,24 @@ static void on_cancel(lv_event_t *e)
     LV_UNUSED(e);
     printer_print_cancel();
     ui_toast("已取消打印", THEME_COL_WARN);
-    panel_mgr_back();
+    /* 不返回上级：留在本面板，状态回 standby 后 update_ui 切到 完成态（重启/主菜单） */
+}
+
+static void on_restart(lv_event_t *e)
+{
+    LV_UNUSED(e);
+    if (!last_file[0]) {
+        ui_toast("没有可重启的文件", THEME_COL_ERROR);
+        return;
+    }
+    printer_print_start(last_file);   /* 重打同一文件，状态回 printing 后界面自动切回 */
+    ui_toast("开始打印", THEME_COL_OK);
+}
+
+static void on_home(lv_event_t *e)
+{
+    LV_UNUSED(e);
+    panel_mgr_home();
 }
 
 static void do_estop(void *ud)
@@ -140,11 +200,30 @@ static lv_obj_t *create(void)
     lv_obj_align(btn_cancel, LV_ALIGN_BOTTOM_MID, 0, -8);
     lv_obj_add_event_cb(btn_cancel, on_cancel, LV_EVENT_CLICKED, NULL);
 
-    lv_obj_t *btn_estop = theme_button(scr, LV_SYMBOL_WARNING, "急停", 0);
+    lv_obj_t *btn_estop_ = theme_button(scr, LV_SYMBOL_WARNING, "急停", 0);
+    btn_estop = btn_estop_;
     lv_obj_set_style_bg_color(btn_estop, theme_col(THEME_COL_ERROR), 0);
     lv_obj_set_size(btn_estop, 94, 36);
     lv_obj_align(btn_estop, LV_ALIGN_BOTTOM_RIGHT, -10, -8);
     lv_obj_add_event_cb(btn_estop, on_estop, LV_EVENT_CLICKED, NULL);
+
+    /* 完成态状态文案：居中于进度环，取代百分比 */
+    lbl_state = theme_label(arc, "", THEME_FONT_M, THEME_COL_OK);
+    lv_obj_center(lbl_state);
+    lv_obj_add_flag(lbl_state, LV_OBJ_FLAG_HIDDEN);
+
+    /* 完成态按钮：重启（重打同一文件）/ 主菜单；初始隐藏 */
+    btn_restart = theme_button(scr, LV_SYMBOL_REFRESH, "重启", 1);
+    lv_obj_set_size(btn_restart, 146, 36);
+    lv_obj_align(btn_restart, LV_ALIGN_BOTTOM_LEFT, 10, -8);
+    lv_obj_add_event_cb(btn_restart, on_restart, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_flag(btn_restart, LV_OBJ_FLAG_HIDDEN);
+
+    btn_home = theme_button(scr, LV_SYMBOL_HOME, "主菜单", 0);
+    lv_obj_set_size(btn_home, 146, 36);
+    lv_obj_align(btn_home, LV_ALIGN_BOTTOM_RIGHT, -10, -8);
+    lv_obj_add_event_cb(btn_home, on_home, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_flag(btn_home, LV_OBJ_FLAG_HIDDEN);
 
     return scr;
 }

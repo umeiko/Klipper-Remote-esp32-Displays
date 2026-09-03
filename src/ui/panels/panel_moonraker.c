@@ -4,6 +4,7 @@
  * 文本输入弹层复用 panel_wifi 密码弹层的 textarea + keyboard 模式。
  */
 #include "../theme.h"
+#include "../lang.h"
 #include "../ui_anim.h"
 #include "../panel_mgr.h"
 #include "../widgets/keypad.h"
@@ -30,11 +31,13 @@ static int   edit_masked;
 static void refresh_row(lv_obj_t *lbl, const char *val, int masked)
 {
     if (!masked) {
-        lv_label_set_text(lbl, val[0] ? val : "未设置");
+        lv_label_set_text(lbl, val[0] ? val : TR("未设置"));
         return;
     }
     /* API Key 掩码显示 */
-    char m[24] = "未设置";
+    char m[24];
+    strncpy(m, TR("未设置"), sizeof(m) - 1);
+    m[sizeof(m) - 1] = 0;
     if (val[0]) {
         size_t n = strlen(val);
         memset(m, '*', n > 12 ? 12 : n);
@@ -179,13 +182,13 @@ static void tick(void)
     case MOONRAKER_READY:
         /* 已连接时附应用层心跳延迟（5s 一跳，0=还没测到） */
         if (printer_rtt_ms() > 0)
-            snprintf(buf, sizeof(buf), "已连接 %dms", printer_rtt_ms());
+            snprintf(buf, sizeof(buf), TR("已连接 %dms"), printer_rtt_ms());
         else
-            snprintf(buf, sizeof(buf), "已连接");
+            snprintf(buf, sizeof(buf), "%s", TR("已连接"));
         s = buf; col = THEME_COL_OK;
         break;
-    case MOONRAKER_CONNECTING: s = "连接中…";   col = THEME_COL_WARN;  break;
-    default:                   s = cfg.valid ? "离线（自动重连中）" : "未配置";
+    case MOONRAKER_CONNECTING: s = TR("连接中…");   col = THEME_COL_WARN;  break;
+    default:                   s = cfg.valid ? TR("离线（自动重连中）") : TR("未配置");
                                col = cfg.valid ? THEME_COL_WARN : THEME_COL_TEXT_DIM; break;
     }
     lv_label_set_text(lbl_status, s);

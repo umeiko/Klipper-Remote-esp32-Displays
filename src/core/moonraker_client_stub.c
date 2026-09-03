@@ -11,3 +11,9 @@ bool moonraker_send_rpc(const char *method, const char *params_json)
     (void)method; (void)params_json;
     return false;
 }
+bool moonraker_rpc(const char *method, const char *params_json,
+                   void (*cb)(char *result_json, void *ud), void *ud)
+{
+    (void)method; (void)params_json; (void)cb; (void)ud;
+    return false;
+}

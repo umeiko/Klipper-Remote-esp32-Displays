@@ -1,5 +1,6 @@
 #include "ui_anim.h"
 #include "theme.h"
+#include "lang.h"
 
 void ui_anim_to(void *var, lv_anim_exec_xcb_t cb, int32_t from, int32_t to,
                 uint32_t dur, lv_anim_path_cb_t path)
@@ -58,7 +59,7 @@ void ui_toast(const char *text, uint32_t accent_hex)
     lv_obj_set_style_radius(toast, 18, 0);
 
     lv_obj_t *lbl = lv_label_create(toast);
-    lv_label_set_text(lbl, text);
+    lv_label_set_text(lbl, ui_tr(text));
     lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(lbl, 300 - 2 * THEME_PAD);
     lv_obj_set_style_text_font(lbl, THEME_FONT_S, 0);   /* 不设会落到 montserrat_14，中文变方框 */

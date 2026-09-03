@@ -76,3 +76,18 @@ bool settings_save_moonraker(const moonraker_conf_t *in)
              in->host, (unsigned)in->port, in->api_key);
     return bsp_conf_write("moonraker.conf", buf) == 0;
 }
+
+bool settings_load_language(char *out, size_t len)
+{
+    char buf[CONF_BUF_SIZE];
+    if (len) { out[0] = 0; strncat(out, "zh", len - 1); }   /* 缺省中文 */
+    if (bsp_conf_read("klipperscreen.conf", buf, sizeof(buf)) < 0) return false;
+    return kv_get(buf, "language", out, len);
+}
+
+bool settings_save_language(const char *lang)
+{
+    char buf[CONF_BUF_SIZE];
+    snprintf(buf, sizeof(buf), "# Klipper-Remote preferences\nlanguage=%s\n", lang);
+    return bsp_conf_write("klipperscreen.conf", buf) == 0;
+}

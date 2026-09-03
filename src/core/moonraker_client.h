@@ -30,6 +30,11 @@ moonraker_state_t moonraker_state(void);
  * params_json 为 JSON 片段（对象/数组文本），可为 NULL（无 params）。 */
 bool moonraker_send_rpc(const char *method, const char *params_json);
 
+/* 带应答回调的 RPC。应答 result 序列化成堆字符串后经 LVGL 上下文投递给 cb
+ * （cb 负责 free）；RPC 层错误时 cb 收到 NULL。离线/发送失败返回 false 且 cb 不会被调。 */
+bool moonraker_rpc(const char *method, const char *params_json,
+                   void (*cb)(char *result_json, void *ud), void *ud);
+
 #ifdef __cplusplus
 }
 #endif

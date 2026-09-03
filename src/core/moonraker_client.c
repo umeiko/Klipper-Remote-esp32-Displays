@@ -31,7 +31,9 @@
 
 typedef struct {
     int id;
-    void (*cb)(cJSON *result);
+    void (*cb)(cJSON *result);                   /* 内部握手用：WS 任务上下文，借用 msg 树 */
+    void (*cb_json)(char *result_json, void *ud);/* 对外 moonraker_rpc：LVGL 上下文，堆字符串 */
+    void *ud;
 } pending_t;
 
 static esp_websocket_client_handle_t ws;
@@ -79,6 +81,11 @@ static void report_gcode_in_lvgl(void *p)
     printer_model_report_gcode_response((char *)p);   /* 内部负责 free */
 }
 
+static void report_rpc_err_in_lvgl(void *p)
+{
+    printer_model_report_rpc_error((char *)p);   /* 内部负责 free */
+}
+
 static void report_rtt_in_lvgl(void *p)
 {
     printer_model_set_rtt((int)(intptr_t)p);
@@ -108,22 +115,32 @@ static void post_status(cJSON *status_obj)
 }
 
 /* ---------- 发送 ---------- */
-static int alloc_pending(void (*cb)(cJSON *result))
+static int alloc_pending(void (*cb)(cJSON *result),
+                         void (*cb_json)(char *, void *), void *ud)
 {
     for (int i = 0; i < 8; i++)
         if (pending[i].id == 0) {
             pending[i].id = next_id++;
             pending[i].cb = cb;
+            pending[i].cb_json = cb_json;
+            pending[i].ud = ud;
             return pending[i].id;
         }
     ESP_LOGW(TAG, "pending table full, drop request");
     return 0;
 }
 
-static bool send_rpc_cb(const char *method, const char *params_json, void (*cb)(cJSON *result))
+static void free_pending(int id)
+{
+    for (int i = 0; i < 8; i++)
+        if (pending[i].id == id) { memset(&pending[i], 0, sizeof(pending[i])); return; }
+}
+
+static bool send_rpc_full(const char *method, const char *params_json,
+                          void (*cb)(cJSON *result), void (*cb_json)(char *, void *), void *ud)
 {
     if (!ws || !esp_websocket_client_is_connected(ws)) return false;
-    int id = alloc_pending(cb);
+    int id = alloc_pending(cb, cb_json, ud);
     if (id == 0) return false;
 
     char frame[1024];
@@ -137,19 +154,45 @@ static bool send_rpc_cb(const char *method, const char *params_json, void (*cb)(
                      "{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"%s\"}", id, method);
     if (n <= 0 || n >= (int)sizeof(frame)) {   /* 参数太长（订阅帧走 cJSON 组装，见下） */
         ESP_LOGE(TAG, "rpc frame too long: %s", method);
+        free_pending(id);
         return false;
     }
     if (esp_websocket_client_send_text(ws, frame, n, pdMS_TO_TICKS(2000)) < 0) {
-        for (int i = 0; i < 8; i++)   /* 发送失败：应答永远不会来，立即回收槽位 */
-            if (pending[i].id == id) { pending[i].id = 0; break; }
+        free_pending(id);   /* 发送失败：应答永远不会来，立即回收槽位 */
         return false;
     }
     return true;
 }
 
+static bool send_rpc_cb(const char *method, const char *params_json, void (*cb)(cJSON *result))
+{
+    return send_rpc_full(method, params_json, cb, NULL, NULL);
+}
+
 bool moonraker_send_rpc(const char *method, const char *params_json)
 {
     return send_rpc_cb(method, params_json, NULL);
+}
+
+/* moonraker_rpc 应答投递载体：WS 任务序列化后投到 LVGL 上下文执行回调 */
+typedef struct {
+    void (*cb)(char *result_json, void *ud);
+    void *ud;
+    char *json;   /* 堆字符串（可为 NULL=RPC 错误），回调负责 free */
+} rpc_delivery_t;
+
+static void deliver_in_lvgl(void *p)
+{
+    rpc_delivery_t *d = p;
+    d->cb(d->json, d->ud);
+    free(d);
+}
+
+bool moonraker_rpc(const char *method, const char *params_json,
+                   void (*cb)(char *result_json, void *ud), void *ud)
+{
+    if (!cb) return false;
+    return send_rpc_full(method, params_json, NULL, cb, ud);
 }
 
 /* ---------- 握手 ---------- */
@@ -296,13 +339,39 @@ static void on_ws_message(const char *data, int len)
         for (int i = 0; i < 8; i++) {
             if (pending[i].id == (int)id->valuedouble) {
                 void (*cb)(cJSON *) = pending[i].cb;
-                pending[i].id = 0;
+                void (*cb_json)(char *, void *) = pending[i].cb_json;
+                void *ud = pending[i].ud;
+                memset(&pending[i], 0, sizeof(pending[i]));
                 cJSON *err = cJSON_GetObjectItem(msg, "error");
                 if (err) {
-                    ESP_LOGW(TAG, "rpc id=%d error: %s", (int)id->valuedouble,
-                             cJSON_GetObjectItem(err, "message")->valuestring);
+                    cJSON *em = cJSON_GetObjectItem(err, "message");
+                    const char *emsg = cJSON_IsString(em) ? em->valuestring : "rpc error";
+                    ESP_LOGW(TAG, "rpc id=%d error: %s", (int)id->valuedouble, emsg);
+                    /* 无主请求的 RPC 错误基本是用户按键触发（点动未归位/超程等），
+                     * 不会走 gcode "!!" 行，必须在这里弹 toast */
+                    if (!cb && !cb_json) {
+                        char *heap = malloc(strlen(emsg) + 1);
+                        if (heap) { strcpy(heap, emsg); post_to_lvgl(report_rpc_err_in_lvgl, heap); }
+                    }
+                    if (cb_json) {   /* 对外回调也要收到失败信号（NULL） */
+                        rpc_delivery_t *d = malloc(sizeof(*d));
+                        if (d) {
+                            d->cb = cb_json; d->ud = ud; d->json = NULL;
+                            post_to_lvgl(deliver_in_lvgl, d);
+                        }
+                    }
                 } else if (cb) {
                     cb(cJSON_GetObjectItem(msg, "result"));
+                } else if (cb_json) {
+                    cJSON *result = cJSON_GetObjectItem(msg, "result");
+                    char *txt = result ? cJSON_PrintUnformatted(result) : NULL;
+                    rpc_delivery_t *d = malloc(sizeof(*d));
+                    if (d) {
+                        d->cb = cb_json; d->ud = ud; d->json = txt;
+                        post_to_lvgl(deliver_in_lvgl, d);
+                    } else {
+                        cJSON_free(txt);
+                    }
                 }
                 break;
             }

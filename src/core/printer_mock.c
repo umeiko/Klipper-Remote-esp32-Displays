@@ -5,6 +5,7 @@
 #include "printer.h"
 #include "lvgl.h"
 #include <stdlib.h>
+#include <string.h>
 
 /* UI 注入的刷新回调（panel_mgr_tick） */
 static void (*refresh_hook)(void);
@@ -105,6 +106,44 @@ void printer_firmware_restart(void)
     /* FIRMWARE_RESTART：下位机重启期间加热目标清零 */
     P.ext_t = 0;
     P.bed_t = 0;
+}
+
+/* ---------- GCode 文件列表（本地模拟，删除后从列表消失） ---------- */
+static struct { const char *name; uint32_t size; double modified; bool deleted; } mock_files[] = {
+    {"calibration_cube.gcode",  420 * 1024,        1756600000, false},
+    {"3dbenchy.gcode",          3360 * 1024,       1756700000, false},
+    {"voron_cube.gcode",        13400 * 1024,      1756800000, false},
+    {"fan_duct_v2.gcode",       5350 * 1024,       1756900000, false},
+    {"phone_stand.gcode",       9030 * 1024,       1757000000, false},
+    {"ercf_gate.gcode",         1990 * 1024,       1757100000, false},
+};
+
+bool printer_files_refresh(printer_files_cb cb, void *ud)
+{
+    if (!cb) return false;
+    int n = 0;
+    for (unsigned i = 0; i < sizeof(mock_files) / sizeof(mock_files[0]); i++)
+        if (!mock_files[i].deleted) n++;
+    printer_file_t *files = n > 0 ? malloc(n * sizeof(printer_file_t)) : NULL;
+    int k = 0;
+    for (unsigned i = 0; i < sizeof(mock_files) / sizeof(mock_files[0]); i++) {
+        if (mock_files[i].deleted || !files) continue;
+        strncpy(files[k].name, mock_files[i].name, sizeof(files[k].name) - 1);
+        files[k].size = mock_files[i].size;
+        files[k].modified = mock_files[i].modified;
+        k++;
+    }
+    cb(files, n, ud);   /* mock 同步回调（已在 LVGL 上下文） */
+    return true;
+}
+
+void printer_file_delete(const char *name)
+{
+    for (unsigned i = 0; i < sizeof(mock_files) / sizeof(mock_files[0]); i++)
+        if (!mock_files[i].deleted && strcmp(mock_files[i].name, name) == 0) {
+            mock_files[i].deleted = true;
+            return;
+        }
 }
 
 /* 每秒：温度向目标漂移 + 打印进度推进 + 广播节拍 */

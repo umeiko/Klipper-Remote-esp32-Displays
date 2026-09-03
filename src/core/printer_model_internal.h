@@ -19,6 +19,10 @@ void printer_model_set_online(int online);
  * LVGL 上下文执行；msg_heap 由本函数释放。仅 "!!" 错误行会被记录待 UI 提示。 */
 void printer_model_report_gcode_response(char *msg_heap);
 
+/* 上报一条 JSON-RPC 层错误（如点动未归位时 moonraker 直接回 RPC error，
+ * 不走 gcode 响应行）。LVGL 上下文执行；msg_heap 由本函数释放。 */
+void printer_model_report_rpc_error(char *msg_heap);
+
 /* 更新应用层心跳 RTT（毫秒）。LVGL 上下文执行。 */
 void printer_model_set_rtt(int ms);
 

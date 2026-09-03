@@ -12,6 +12,7 @@ extern panel_def_t panel_temperature_def;
 extern panel_def_t panel_move_def;
 extern panel_def_t panel_extrude_def;
 extern panel_def_t panel_files_def;
+extern panel_def_t panel_file_detail_def;
 extern panel_def_t panel_settings_def;
 extern panel_def_t panel_wifi_def;
 extern panel_def_t panel_moonraker_def;
@@ -23,6 +24,7 @@ static panel_def_t *registry[] = {
     &panel_move_def,
     &panel_extrude_def,
     &panel_files_def,
+    &panel_file_detail_def,
     &panel_settings_def,
     &panel_wifi_def,
     &panel_moonraker_def,
@@ -75,6 +77,25 @@ void panel_mgr_back(void)
 {
     if (nav_top <= 0) return;
     nav_top--;
+    show(nav_stack[nav_top], 0);
+}
+
+void panel_mgr_home(void)
+{
+    if (nav_top <= 0) return;
+    nav_top = 0;
+    show(nav_stack[0], 0);
+}
+
+void panel_mgr_reload(void)
+{
+    /* 面板屏幕里的文本在 create 时按当时语言生成；切语言后必须重建。
+     * 面板静态指针会在各自 create() 里重新赋值，下层面板等 back 时懒重建。 */
+    for (unsigned i = 0; i < REG_COUNT; i++)
+        if (registry[i]->scr) {
+            lv_obj_delete(registry[i]->scr);
+            registry[i]->scr = NULL;
+        }
     show(nav_stack[nav_top], 0);
 }
 

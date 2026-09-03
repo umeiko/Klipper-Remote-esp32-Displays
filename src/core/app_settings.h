@@ -8,6 +8,7 @@
  */
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,6 +32,11 @@ bool settings_save_wifi(const wifi_conf_t *in);
 
 bool settings_load_moonraker(moonraker_conf_t *out);
 bool settings_save_moonraker(const moonraker_conf_t *in);
+
+/* 本机偏好（klipperscreen.conf，对齐 KlipperScreen 的偏好文件习惯）。
+ * 目前只有 language=zh|en；out 缺省填 "zh"。 */
+bool settings_load_language(char *out, size_t len);
+bool settings_save_language(const char *lang);
 
 #ifdef __cplusplus
 }

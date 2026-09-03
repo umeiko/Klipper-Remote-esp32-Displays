@@ -80,6 +80,15 @@ void printer_model_report_gcode_response(char *msg_heap)
     free(msg_heap);
 }
 
+void printer_model_report_rpc_error(char *msg_heap)
+{
+    /* RPC error 必定是错误（如 "Must home axis first"），直接记 */
+    strncpy(M.gcode_err, msg_heap, sizeof(M.gcode_err) - 1);
+    M.gcode_err[sizeof(M.gcode_err) - 1] = 0;
+    refresh();
+    free(msg_heap);
+}
+
 uint32_t printer_print_elapsed_s(void)
 {
     return (M.state == PRINTER_STATE_PRINTING || M.state == PRINTER_STATE_PAUSED)
@@ -138,6 +147,72 @@ void printer_print_resume(void) { klipper_print_resume(); }
 void printer_print_cancel(void) { klipper_print_cancel(); }
 void printer_emergency_stop(void)  { klipper_emergency_stop(); }
 void printer_firmware_restart(void){ klipper_firmware_restart(); }
+
+/* ---------- GCode 文件列表 ----------
+ * server.files.list {"root":"gcodes"} → moonraker_rpc 应答在 LVGL 上下文
+ * 回到这里解析，再转发给面板回调。同时只允许一个在途请求（单面板使用场景）。 */
+static struct {
+    printer_files_cb cb;
+    void *ud;
+    bool in_flight;
+} files_req;
+
+static void on_files_list(char *json, void *ud)
+{
+    (void)ud;
+    printer_files_cb cb = files_req.cb;
+    void *cb_ud = files_req.ud;
+    files_req.in_flight = false;
+
+    printer_file_t *files = NULL;
+    int count = 0;
+
+    cJSON *arr = json ? cJSON_Parse(json) : NULL;
+    free(json);
+    if (!arr) count = -1;   /* RPC 错误/解析失败：区别于"空列表" */
+    if (arr) {
+        int n = cJSON_GetArraySize(arr);
+        files = n > 0 ? calloc(n, sizeof(printer_file_t)) : NULL;
+        cJSON *it;
+        cJSON_ArrayForEach(it, arr) {
+            if (!files) break;
+            cJSON *path = cJSON_GetObjectItem(it, "path");
+            cJSON *size = cJSON_GetObjectItem(it, "size");
+            if (!cJSON_IsString(path) || !cJSON_IsNumber(size)) continue;   /* 目录无 size，跳过 */
+            if (path->valuestring[0] == '.') continue;                      /* 隐藏文件 */
+            printer_file_t *f = &files[count++];
+            strncpy(f->name, path->valuestring, sizeof(f->name) - 1);
+            f->size = (uint32_t)size->valuedouble;
+            cJSON *mod = cJSON_GetObjectItem(it, "modified");
+            f->modified = cJSON_IsNumber(mod) ? mod->valuedouble : 0;
+        }
+        cJSON_Delete(arr);
+    }
+
+    if (cb) cb(files, count, cb_ud);
+    else    free(files);
+}
+
+bool printer_files_refresh(printer_files_cb cb, void *ud)
+{
+    if (!cb || files_req.in_flight || M.state == PRINTER_STATE_DISCONNECTED)
+        return false;
+    files_req.cb = cb;
+    files_req.ud = ud;
+    files_req.in_flight = true;
+    if (!moonraker_rpc("server.files.list", "{\"root\":\"gcodes\"}", on_files_list, NULL)) {
+        files_req.in_flight = false;
+        return false;
+    }
+    return true;
+}
+
+void printer_file_delete(const char *name)
+{
+    char path[112];
+    snprintf(path, sizeof(path), "gcodes/%s", name);
+    klipper_file_delete(path);
+}
 
 /* ---------- 状态机 ---------- */
 static void evaluate_state(void)

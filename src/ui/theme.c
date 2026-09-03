@@ -1,4 +1,5 @@
 #include "theme.h"
+#include "lang.h"
 #include <stdio.h>
 
 void theme_fmt_float(char *buf, size_t n, float v, int decimals)
@@ -51,7 +52,7 @@ lv_obj_t *theme_button(lv_obj_t *parent, const char *icon, const char *text, int
     }
     if (text && text[0]) {
         lv_obj_t *lbl = lv_label_create(btn);
-        lv_label_set_text(lbl, text);
+        lv_label_set_text(lbl, ui_tr(text));
         lv_obj_set_style_text_font(lbl, THEME_FONT_S, 0);
         lv_obj_set_style_text_color(lbl, theme_col(THEME_COL_TEXT), 0);
     }
@@ -72,7 +73,7 @@ lv_obj_t *theme_menu_button(lv_obj_t *parent, const char *icon, const char *text
     lv_obj_set_style_text_color(ic, theme_col(THEME_COL_ACCENT), 0);
 
     lv_obj_t *lbl = lv_label_create(btn);
-    lv_label_set_text(lbl, text);
+    lv_label_set_text(lbl, ui_tr(text));
     lv_obj_set_style_text_font(lbl, THEME_FONT_S, 0);
     lv_obj_set_style_text_color(lbl, theme_col(THEME_COL_TEXT), 0);
     return btn;
@@ -81,7 +82,7 @@ lv_obj_t *theme_menu_button(lv_obj_t *parent, const char *icon, const char *text
 lv_obj_t *theme_label(lv_obj_t *parent, const char *text, const lv_font_t *font, uint32_t col_hex)
 {
     lv_obj_t *lbl = lv_label_create(parent);
-    lv_label_set_text(lbl, text);
+    lv_label_set_text(lbl, ui_tr(text));
     lv_obj_set_style_text_font(lbl, font, 0);
     lv_obj_set_style_text_color(lbl, theme_col(col_hex), 0);
     return lbl;
@@ -108,7 +109,7 @@ lv_obj_t *theme_menu_button_img(lv_obj_t *parent, const lv_image_dsc_t *icon, co
     theme_img(btn, icon, THEME_COL_ACCENT);
 
     lv_obj_t *lbl = lv_label_create(btn);
-    lv_label_set_text(lbl, text);
+    lv_label_set_text(lbl, ui_tr(text));
     lv_obj_set_style_text_font(lbl, THEME_FONT_S, 0);
     lv_obj_set_style_text_color(lbl, theme_col(THEME_COL_TEXT), 0);
     return btn;

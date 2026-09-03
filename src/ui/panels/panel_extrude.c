@@ -2,6 +2,7 @@
  * 挤出/退料（对标 KlipperScreen extrude 简化版）
  */
 #include "../theme.h"
+#include "../lang.h"
 #include "../ui_anim.h"
 #include "../panel_mgr.h"
 #include "printer.h"
@@ -33,7 +34,7 @@ static void on_extrude(lv_event_t *e)
 
 static void update_temp(void)
 {
-    lv_label_set_text_fmt(lbl_temp, "喷嘴 %d" "\xC2\xB0" "C（挤出需 ≥ %d" "\xC2\xB0" "C）",
+    lv_label_set_text_fmt(lbl_temp, TR("喷嘴 %d°C（挤出需 ≥ %d°C）"),
                           (int)(printer_temp_ext() + 0.5f), (int)MIN_EXTRUDE_TEMP);
     lv_obj_set_style_text_color(lbl_temp,
         theme_col(printer_temp_ext() >= MIN_EXTRUDE_TEMP ? THEME_COL_TEXT_DIM : THEME_COL_WARN), 0);

@@ -19,6 +19,7 @@
 #include "bsp_wifi.h"
 #include "app_settings.h"
 #include "moonraker_client.h"
+#include "klipper_api.h"
 #include "printer.h"
 
 #define TAG "cli"
@@ -169,6 +170,14 @@ static void cmd_mr(char *args)
     moonraker_reload();
 }
 
+static void cmd_gc(char *args)
+{
+    if (!args || !args[0]) { printf("usage: gc <gcode> (\\ = 换行)\n"); return; }
+    char *q = args;
+    while (*q) { if (*q == '\\') *q = '\n'; q++; }
+    printf("gcode: '%s' -> %s\n", args, klipper_gcode_script(args) ? "sent" : "send failed");
+}
+
 static void cli_handle(char *line)
 {
     while (*line == ' ') line++;
@@ -178,13 +187,15 @@ static void cli_handle(char *line)
 
     if (!strcmp(line, "help")) {
         printf("commands: help | scan | wifi <ssid> <pass> | mr <host> [port] | mrstart | status | ps\n"
-               "          ls [path] | cd <path> | pwd | cat <file> | rm <file>\n");
+               "          gc <gcode> | ls [path] | cd <path> | pwd | cat <file> | rm <file>\n");
     } else if (!strcmp(line, "scan")) {
         cmd_scan();
     } else if (!strcmp(line, "wifi")) {
         cmd_wifi(args);
     } else if (!strcmp(line, "ps")) {
         cmd_ps();
+    } else if (!strcmp(line, "gc")) {
+        cmd_gc(args);
     } else if (!strcmp(line, "ls")) {
         cmd_ls(args);
     } else if (!strcmp(line, "cd")) {
