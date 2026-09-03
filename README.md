@@ -8,9 +8,9 @@ A touchscreen remote display for **Klipper** 3D printers, talking to **Moonraker
 
 The same UI code also compiles as a **desktop simulator** (SDL2, Windows/Linux), so every panel can be developed and screenshot-tested without flashing hardware.
 
-| Boot | Main (idle) | Disconnected | Klipper error |
+| Main (idle) | Disconnected | Klipper error | Files |
 |---|---|---|---|
-| ![boot](docs/screenshots/boot.png) | ![idle](docs/screenshots/main_idle.png) | ![offline](docs/screenshots/main_offline.png) | ![error](docs/screenshots/main_error.png) |
+| ![idle](docs/screenshots/main_idle.png) | ![offline](docs/screenshots/main_offline.png) | ![error](docs/screenshots/main_error.png) | ![files](docs/screenshots/files.png) |
 
 | Move | Temperature | Printing | Settings |
 |---|---|---|---|

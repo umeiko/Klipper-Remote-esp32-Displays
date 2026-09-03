@@ -4,11 +4,11 @@
 
 基于 ESP32 CYD 系列开发板的 Klipper 远程触屏显示器（对标 KlipperScreen），通过 WiFi 连接 Moonraker。多后端架构：所有界面/业务代码共享，每个后端（ESP32 各板型、desktop SDL2、未来的 Pico/STM32…）地位平等。
 
-| 开机 | 主界面 | 断连 | Klipper 异常 |
+| 主界面 | 断连 | Klipper 异常 | 文件 |
 |---|---|---|---|
-| ![boot](../docs/screenshots/boot.png) | ![idle](../docs/screenshots/main_idle.png) | ![offline](../docs/screenshots/main_offline.png) | ![error](../docs/screenshots/main_error.png) |
+| ![idle](docs/screenshots/main_idle.png) | ![offline](docs/screenshots/main_offline.png) | ![error](docs/screenshots/main_error.png) | ![files](docs/screenshots/files.png) |
 
-> 注：相对路径以本文件位于仓库根目录为准；若图片不显示请直接看 [docs/screenshots/](docs/screenshots/)。
+> 截图均为 desktop 模拟器实拍（英文界面）。更多界面见 [docs/screenshots/](docs/screenshots/)。
 
 - 架构设计：[docs/architecture.md](docs/architecture.md)
 - Klipper/Moonraker API 参考：[docs/klipper-moonraker-api.md](docs/klipper-moonraker-api.md)
