@@ -15,6 +15,9 @@ jobs:
 
       - name: Build ESP32 firmware (CYD 2432S028R)
         run: |
+          # GH Actions 会覆盖容器 entrypoint，idf 环境需手动激活；并修复容器内 git 属主告警
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          . "$IDF_PATH/export.sh"
           cd src/ports/esp32
           idf.py build
 
