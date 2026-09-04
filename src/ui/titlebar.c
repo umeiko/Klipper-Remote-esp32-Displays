@@ -13,7 +13,10 @@ static lv_obj_t *lbl_title;
 static lv_obj_t *lbl_wifi;
 static lv_obj_t *lbl_ext;
 static lv_obj_t *lbl_bed;
+static lv_obj_t *ic_ext;
+static lv_obj_t *ic_bed;
 static int show_clock;   /* 主面板（无返回键且无标题）→ 标题位显示时钟 */
+static int show_temps = 1;   /* 标题长的面板（Moonraker 设置等）可关掉温度显示 */
 
 static void back_cb(lv_event_t *e)
 {
@@ -49,14 +52,24 @@ void titlebar_init(void)
     /* 右侧：喷嘴/热床实时温度（小图标 + 数值） */
     lbl_bed = theme_label(bar, "", THEME_FONT_S, THEME_COL_BED);
     lv_obj_align(lbl_bed, LV_ALIGN_RIGHT_MID, -2, 0);
-    lv_obj_t *ic_bed = theme_img(bar, &img_bed_16, THEME_COL_BED);
+    ic_bed = theme_img(bar, &img_bed_16, THEME_COL_BED);
     lv_obj_align(ic_bed, LV_ALIGN_RIGHT_MID, -34, 0);
     lbl_ext = theme_label(bar, "", THEME_FONT_S, THEME_COL_EXTRUDER);
     lv_obj_align(lbl_ext, LV_ALIGN_RIGHT_MID, -70, 0);
-    lv_obj_t *ic_ext = theme_img(bar, &img_nozzle_16, THEME_COL_EXTRUDER);
+    ic_ext = theme_img(bar, &img_nozzle_16, THEME_COL_EXTRUDER);
     lv_obj_align(ic_ext, LV_ALIGN_RIGHT_MID, -102, 0);
 
     titlebar_tick();
+}
+
+void titlebar_show_temps(int show)
+{
+    show_temps = show;
+    lv_obj_t *objs[] = { lbl_ext, lbl_bed, ic_ext, ic_bed };
+    for (unsigned i = 0; i < sizeof(objs) / sizeof(objs[0]); i++) {
+        if (show) lv_obj_remove_flag(objs[i], LV_OBJ_FLAG_HIDDEN);
+        else      lv_obj_add_flag(objs[i], LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 void titlebar_set(const char *title, int show_back)

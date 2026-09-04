@@ -10,6 +10,7 @@ extern "C" {
 
 void titlebar_init(void);
 void titlebar_set(const char *title, int show_back);
+void titlebar_show_temps(int show);   /* 隐藏/显示右侧温度（标题长的面板用） */
 void titlebar_tick(void);   /* 刷新右侧温度 */
 
 #ifdef __cplusplus

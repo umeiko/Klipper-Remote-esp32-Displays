@@ -27,6 +27,8 @@ LV_IMAGE_DECLARE(img_wifi_1);
 LV_IMAGE_DECLARE(img_link_off);    /* 16px 断链：状态卡 Moonraker 断连 */
 LV_IMAGE_DECLARE(img_link);        /* 16px 链接：状态卡已连接 */
 LV_IMAGE_DECLARE(img_alert_circle);/* 16px 感叹号圆：状态卡 Klipper 异常 */
+LV_IMAGE_DECLARE(img_globe_16);    /* 16px 地球：设置-语言行 */
+LV_IMAGE_DECLARE(img_swap_16);     /* 16px 双向箭头：Moonraker-切换打印机行 */
 
 #ifdef __cplusplus
 }

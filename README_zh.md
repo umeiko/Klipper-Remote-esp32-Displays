@@ -4,11 +4,27 @@
 
 基于 ESP32 CYD 系列开发板的 Klipper 远程触屏显示器（对标 KlipperScreen），通过 WiFi 连接 Moonraker。多后端架构：所有界面/业务代码共享，每个后端（ESP32 各板型、desktop SDL2、未来的 Pico/STM32…）地位平等。
 
-| 主界面 | 断连 | Klipper 异常 | 文件 |
-|---|---|---|---|
-| ![idle](docs/screenshots/main_idle.png) | ![offline](docs/screenshots/main_offline.png) | ![error](docs/screenshots/main_error.png) | ![files](docs/screenshots/files.png) |
+## 界面实拍
 
-> 截图均为 desktop 模拟器实拍（英文界面）。更多界面见 [docs/screenshots/](docs/screenshots/)。
+![主界面：空闲，标题栏实时温度](docs/screenshots/main_idle.png)
+
+![主界面：Moonraker 断连](docs/screenshots/main_offline.png)
+
+![主界面：Klipper 异常](docs/screenshots/main_error.png)
+
+![G-code 历史文件](docs/screenshots/files.png)
+
+![打印中：进度环](docs/screenshots/printing.png)
+
+![轴移动 / 归零](docs/screenshots/move.png)
+
+![温度预设](docs/screenshots/temperature.png)
+
+![多打印机切换：6 槽位](docs/screenshots/printers.png)
+
+![设置](docs/screenshots/settings.png)
+
+> 截图均为 desktop 模拟器实拍（英文界面）。
 
 - 架构设计：[docs/architecture.md](docs/architecture.md)
 - Klipper/Moonraker API 参考：[docs/klipper-moonraker-api.md](docs/klipper-moonraker-api.md)
@@ -16,11 +32,12 @@
 
 ## 功能
 
+- 多打印机：最多 6 个 Moonraker 槽位，3×2 切换页一键换机，秒级重连
 - 实时状态：标题栏喷嘴/热床温度、状态卡按状态整卡变色（空闲绿/异常红/断连黄）
 - 打印任务：G-code 历史列表、二级菜单打印/删除、进度环 + 已用/剩余时间、暂停/恢复/取消
 - 控制：轴点动/归零、挤出/回抽（冷挤出保护）、温度预设（PLA/PETG/ABS/冷却）、急停/下位机重启（带确认）
 - 链路健壮：WS 自动重连、应用层心跳 RTT 显示、僵尸连接检测、Klipper 报错 toast（如限位未触发）
-- 体验细节：「Umeko」开机动画、中英双语（切换时渐暗到黑再重启）、背光滑杆、自动息屏（15秒~1小时/永不）触摸唤醒、标题栏时钟（从 Moonraker 上位机对时，纯内网）
+- 体验细节：「Umeko」开机动画、5 种语言（EN/简中/繁中/FR/IT，切换时渐暗到黑再重启）、背光滑杆、自动息屏（15秒~1小时/永不）触摸唤醒、标题栏时钟（从 Moonraker 上位机对时，纯内网）
 - 触摸两点校准一次持久化到 flash；2432S028R 预置出厂校准参数
 
 ## 技术栈
@@ -39,10 +56,10 @@ ESP-IDF v5.5.5 · LVGL v9.3 · 多后端（ESP32 各 CYD 板型 / desktop SDL2�
 ## 首次配置
 
 1. 设置 → 无线网络：扫描 → 选 AP → 输密码，存入 `network.conf`
-2. 设置 → Moonraker：主机 IP + 端口（默认 7125）+ 可选 API Key，存入 `moonraker.conf`
+2. 设置 → Moonraker：先选打印机槽位（最多 6 台），填主机 IP + 端口（默认 7125）+ 可选 API Key，存入 `moonraker.conf`
 3. 语言/背光/自动息屏等偏好存入 `klipperscreen.conf`
 
-串口 CLI（115200 8N1）可调试：`help` / `wifi` / `mr` / `mrstart` / `gc` / `status` / `ps` / `ls` / `cd` / `cat` / `rm` …
+串口 CLI（115200 8N1）可调试：`help` / `wifi` / `mr` / `printer <1-6>` / `mrstart` / `gc` / `status` / `ps` / `ls` / `cd` / `cat` / `rm` …
 
 ## 目录
 

@@ -155,6 +155,23 @@ static void cmd_ps(void)
            printer_progress_permille() / 10.0f, printer_filename());
 }
 
+/* 切换当前打印机槽位（1..6），等价于槽位页的点击——用来从串口复现/验证切槽 */
+static void cmd_printer(char *args)
+{
+    int slot = args ? atoi(args) : 0;
+    if (slot < 1 || slot > PRINTER_SLOTS) {
+        printf("usage: printer <1-%d>   (active=%d)\n",
+               PRINTER_SLOTS, settings_load_active_printer() + 1);
+        return;
+    }
+    settings_save_active_printer(slot - 1);
+    moonraker_conf_t mc = {0};
+    settings_load_moonraker(&mc);
+    printf("active printer -> %d (host='%s' port=%u)\n",
+           slot, mc.host, (unsigned)mc.port);
+    moonraker_reload();
+}
+
 static void cmd_mr(char *args)
 {
     moonraker_conf_t mc = {0};
@@ -187,7 +204,7 @@ static void cli_handle(char *line)
 
     if (!strcmp(line, "help")) {
         printf("commands: help | scan | wifi <ssid> <pass> | mr <host> [port] | mrstart | status | ps\n"
-               "          gc <gcode> | ls [path] | cd <path> | pwd | cat <file> | rm <file>\n");
+               "          printer <1-6> | gc <gcode> | ls [path] | cd <path> | pwd | cat <file> | rm <file>\n");
     } else if (!strcmp(line, "scan")) {
         cmd_scan();
     } else if (!strcmp(line, "wifi")) {
@@ -208,6 +225,8 @@ static void cli_handle(char *line)
         cmd_rm(args);
     } else if (!strcmp(line, "mr")) {
         cmd_mr(args);
+    } else if (!strcmp(line, "printer")) {
+        cmd_printer(args);
     } else if (!strcmp(line, "mrstart")) {
         moonraker_start();
         printf("moonraker_start() called\n");

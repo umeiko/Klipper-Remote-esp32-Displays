@@ -8,20 +8,34 @@ A touchscreen remote display for **Klipper** 3D printers, talking to **Moonraker
 
 The same UI code also compiles as a **desktop simulator** (SDL2, Windows/Linux), so every panel can be developed and screenshot-tested without flashing hardware.
 
-| Main (idle) | Disconnected | Klipper error | Files |
-|---|---|---|---|
-| ![idle](docs/screenshots/main_idle.png) | ![offline](docs/screenshots/main_offline.png) | ![error](docs/screenshots/main_error.png) | ![files](docs/screenshots/files.png) |
+## Screenshots
 
-| Move | Temperature | Printing | Settings |
-|---|---|---|---|
-| ![move](docs/screenshots/move.png) | ![temp](docs/screenshots/temperature.png) | ![printing](docs/screenshots/printing.png) | ![settings](docs/screenshots/settings.png) |
+![Main — idle, temps in title bar](docs/screenshots/main_idle.png)
+
+![Main — Moonraker disconnected](docs/screenshots/main_offline.png)
+
+![Main — Klipper error](docs/screenshots/main_error.png)
+
+![G-code file history](docs/screenshots/files.png)
+
+![Printing — progress ring](docs/screenshots/printing.png)
+
+![Axis jog & homing](docs/screenshots/move.png)
+
+![Temperature presets](docs/screenshots/temperature.png)
+
+![Multi-printer switcher — 6 slots](docs/screenshots/printers.png)
+
+![Settings](docs/screenshots/settings.png)
 
 ## Features
 
+- **Multi-printer** — up to 6 Moonraker slots with a 3×2 switcher page; one tap changes the active printer and reconnects instantly
 - **Live printer status** — nozzle/bed temperatures in the title bar, state card (idle / printing / paused / complete / error), per-state full-card color coding
 - **Print jobs** — browse G-code history, print or delete from a detail view, live progress ring with elapsed/remaining time, pause / resume / cancel
 - **Control** — axis jog & homing, extrude/retract with cold-extrusion guard, temperature presets (PLA/PETG/ABS/cooldown), emergency stop & firmware restart with confirmation
 - **Robust link** — WebSocket auto-reconnect, app-level heartbeat with RTT display, zombie-connection detection, Klipper error toasts (e.g. endstop not triggered)
+- **Extras** — "Umeko" boot animation, 5 languages (EN / 简中 / 繁中 / FR / IT, fade-to-black reboot on switch), brightness slider, auto screen-off with touch wake, title-bar clock synced from the Moonraker host (no internet needed)
 - **One-time touch calibration** persisted to flash; factory calibration pre-installed for the 2432S028R
 
 ## Hardware
@@ -41,10 +55,10 @@ The zip contains `bootloader.bin`, `partition-table.bin`, the app binary, `espto
 ## First-time setup
 
 1. **Settings → WiFi**: scan, pick AP, enter password — saved to `network.conf`
-2. **Settings → Moonraker**: host IP + port (default 7125), optional API key — saved to `moonraker.conf`
+2. **Settings → Moonraker**: pick a printer slot (up to 6), host IP + port (default 7125), optional API key — saved to `moonraker.conf`
 3. Preferences (language / brightness / screen-off) live in `klipperscreen.conf`
 
-All config lives in LittleFS on the device. A serial CLI (`115200 8N1`) is available for debugging: `help`, `wifi`, `mr`, `mrstart`, `gc`, `status`, `ps`, `ls`, `cd`, `cat`, `rm` …
+All config lives in LittleFS on the device. A serial CLI (`115200 8N1`) is available for debugging: `help`, `wifi`, `mr`, `printer <1-6>`, `mrstart`, `gc`, `status`, `ps`, `ls`, `cd`, `cat`, `rm` …
 
 ## Build from source
 

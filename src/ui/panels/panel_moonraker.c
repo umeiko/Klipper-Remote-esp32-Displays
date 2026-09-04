@@ -1,5 +1,6 @@
 /*
- * Moonraker 连接设置：主机/端口/API Key 编辑 + 连接状态 + 保存并连接。
+ * Moonraker 连接设置：槽位/主机/端口/API Key 编辑 + 连接状态 + 保存并连接。
+ * 最多 6 台打印机槽位（"切换打印机"行 → printers 面板选择）；编辑对象为当前槽。
  * 配置持久化到 moonraker.conf（app_settings → bsp_conf）。
  * 文本输入弹层复用 panel_wifi 密码弹层的 textarea + keyboard 模式。
  */
@@ -8,13 +9,15 @@
 #include "../ui_anim.h"
 #include "../panel_mgr.h"
 #include "../widgets/keypad.h"
+#include "../assets/icons.h"
 #include "app_settings.h"
 #include "moonraker_client.h"
 #include "printer.h"
 #include <string.h>
 #include <stdio.h>
 
-static moonraker_conf_t cfg;        /* 工作副本，保存时才落盘 */
+static moonraker_conf_t cfg;        /* 工作副本（当前槽），保存时才落盘 */
+static lv_obj_t *lbl_switch;
 static lv_obj_t *lbl_host;
 static lv_obj_t *lbl_port;
 static lv_obj_t *lbl_key;
@@ -27,6 +30,8 @@ static char  *edit_target;          /* 指向 cfg.host 或 cfg.api_key */
 static size_t edit_cap;
 static lv_obj_t **edit_label;       /* 完成后刷新的行标签 */
 static int   edit_masked;
+
+static void tick(void);
 
 static void refresh_row(lv_obj_t *lbl, const char *val, int masked)
 {
@@ -146,15 +151,23 @@ static void on_save_click(lv_event_t *e)
 }
 
 /* ---------- 界面 ---------- */
-static lv_obj_t *make_row(lv_obj_t *parent, const char *key, lv_obj_t **val_lbl, int y)
+/* icon 非 NULL 时在行首文字前加 16px 小图标（参照设置页语言行） */
+static lv_obj_t *make_row(lv_obj_t *parent, const char *key, lv_obj_t **val_lbl, int y,
+                          const void *icon)
 {
     lv_obj_t *row = theme_card(parent);
     lv_obj_set_size(row, 304, 38);
     lv_obj_align(row, LV_ALIGN_TOP_MID, 0, y);
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
 
+    int text_x = 2;
+    if (icon) {
+        lv_obj_t *ic = theme_img(row, icon, THEME_COL_TEXT_DIM);
+        lv_obj_align(ic, LV_ALIGN_LEFT_MID, 2, 0);
+        text_x = 22;
+    }
     lv_obj_t *k = theme_label(row, key, THEME_FONT_M, THEME_COL_TEXT);
-    lv_obj_align(k, LV_ALIGN_LEFT_MID, 2, 0);
+    lv_obj_align(k, LV_ALIGN_LEFT_MID, text_x, 0);
 
     *val_lbl = theme_label(row, "", THEME_FONT_S, THEME_COL_TEXT_DIM);
     lv_obj_set_width(*val_lbl, 200);
@@ -166,11 +179,26 @@ static lv_obj_t *make_row(lv_obj_t *parent, const char *key, lv_obj_t **val_lbl,
 
 static void update_rows(void)
 {
+    /* 槽位行：当前槽号 + 该槽主机 */
+    char sw[80];
+    snprintf(sw, sizeof(sw), "%d · %s", settings_load_active_printer() + 1,
+             cfg.host[0] ? cfg.host : TR("未设置"));
+    lv_label_set_text(lbl_switch, sw);
     refresh_row(lbl_host, cfg.host, 0);
     refresh_row(lbl_key, cfg.api_key, 1);
     char buf[8];
     snprintf(buf, sizeof(buf), "%u", (unsigned)(cfg.port ? cfg.port : 7125));
     lv_label_set_text(lbl_port, buf);
+}
+
+static void on_show(void)
+{
+    /* 从槽位选择页返回时重读当前槽（可能刚切换过） */
+    memset(&cfg, 0, sizeof(cfg));
+    settings_load_moonraker(&cfg);
+    if (!cfg.port) cfg.port = 7125;
+    update_rows();
+    tick();
 }
 
 static void tick(void)
@@ -195,28 +223,33 @@ static void tick(void)
     lv_obj_set_style_text_color(lbl_status, theme_col(col), 0);
 }
 
+static void on_switch_click(lv_event_t *e)
+{
+    LV_UNUSED(e);
+    panel_mgr_open("printers");
+}
+
 static lv_obj_t *create(void)
 {
-    memset(&cfg, 0, sizeof(cfg));
-    settings_load_moonraker(&cfg);
-    if (!cfg.port) cfg.port = 7125;
-
     lv_obj_t *scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr, theme_col(THEME_COL_BG), 0);
+    lv_obj_set_scroll_dir(scr, LV_DIR_VER);   /* 6 行超出 240 高，允许上下滚动 */
 
     int y = THEME_TITLEBAR_H + 6;
     lv_obj_t *r;
-    r = make_row(scr, "主机", &lbl_host, y);
+    r = make_row(scr, "切换打印机", &lbl_switch, y, &img_swap_16);
+    lv_obj_add_event_cb(r, on_switch_click, LV_EVENT_CLICKED, NULL);
+    r = make_row(scr, "主机", &lbl_host, y + 44, NULL);
     lv_obj_add_event_cb(r, on_host_click, LV_EVENT_CLICKED, NULL);
-    r = make_row(scr, "端口", &lbl_port, y + 44);
+    r = make_row(scr, "端口", &lbl_port, y + 88, NULL);
     lv_obj_add_event_cb(r, on_port_click, LV_EVENT_CLICKED, NULL);
-    r = make_row(scr, "API Key", &lbl_key, y + 88);
+    r = make_row(scr, "API Key", &lbl_key, y + 132, NULL);
     lv_obj_add_event_cb(r, on_key_click, LV_EVENT_CLICKED, NULL);
 
     /* 连接状态行（不可点） */
     lv_obj_t *srow = theme_card(scr);
     lv_obj_set_size(srow, 304, 38);
-    lv_obj_align(srow, LV_ALIGN_TOP_MID, 0, y + 132);
+    lv_obj_align(srow, LV_ALIGN_TOP_MID, 0, y + 176);
     lv_obj_t *k = theme_label(srow, "状态", THEME_FONT_M, THEME_COL_TEXT);
     lv_obj_align(k, LV_ALIGN_LEFT_MID, 2, 0);
     lbl_status = theme_label(srow, "", THEME_FONT_S, THEME_COL_TEXT_DIM);
@@ -224,17 +257,17 @@ static lv_obj_t *create(void)
 
     lv_obj_t *btn = theme_button(scr, LV_SYMBOL_SAVE, "保存并连接", 1);
     lv_obj_set_size(btn, 304, 36);
-    lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, 0, -6);
+    lv_obj_align(btn, LV_ALIGN_TOP_MID, 0, y + 222);
     lv_obj_add_event_cb(btn, on_save_click, LV_EVENT_CLICKED, NULL);
 
-    update_rows();
-    tick();
+    on_show();   /* 读当前槽并刷新行 */
     return scr;
 }
 
 panel_def_t panel_moonraker_def = {
     .name = "moonraker", .title = "Moonraker 连接",
     .create = create,
-    .on_show = NULL,
+    .on_show = on_show,
     .on_tick = tick,
+    .hide_temps = 1,   /* 标题长，关掉右侧温度避免遮挡 */
 };

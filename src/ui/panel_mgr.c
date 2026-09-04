@@ -16,6 +16,7 @@ extern panel_def_t panel_file_detail_def;
 extern panel_def_t panel_settings_def;
 extern panel_def_t panel_wifi_def;
 extern panel_def_t panel_moonraker_def;
+extern panel_def_t panel_printers_def;
 extern panel_def_t panel_brightness_def;
 
 static panel_def_t *registry[] = {
@@ -29,6 +30,7 @@ static panel_def_t *registry[] = {
     &panel_settings_def,
     &panel_wifi_def,
     &panel_moonraker_def,
+    &panel_printers_def,
     &panel_brightness_def,
 };
 
@@ -52,6 +54,7 @@ static void show(panel_def_t *p, int push)
     if (push) ui_screen_push(p->scr);
     else      ui_screen_pop(p->scr);
     titlebar_set(p->title, nav_top > 0);
+    titlebar_show_temps(!p->hide_temps);
     if (p->on_show) p->on_show();
 }
 

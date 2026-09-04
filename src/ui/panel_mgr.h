@@ -17,6 +17,7 @@ typedef struct {
     lv_obj_t *(*create)(void);        /* 首次构建，返回 screen 根对象 */
     void (*on_show)(void);            /* 每次显示时调用（全量刷新数据） */
     void (*on_tick)(void);            /* 数据节拍（仅栈顶面板收到） */
+    int hide_temps;                   /* 标题栏不显示右侧温度（标题长的面板置 1） */
 } panel_def_t;
 
 void panel_mgr_init(void);

@@ -27,6 +27,9 @@ UI_DIR = ROOT / "src" / "ui"
 CONV_JS = ROOT / "tools" / "fontgen" / "node_modules" / "lv_font_conv" / "lv_font_conv.js"
 CHARSET_OUT = ROOT / "tmp" / "cjk_chars.txt"
 DEFAULT_FONT = r"C:\Windows\Fonts\simhei.ttf"
+# 西文兜底字体：simhei 只覆盖拼音用拉丁字母（é/è/à/ê/ù…），缺 ç/ô/É 等，
+# Latin-1 补充区（0xA0-0xFF）整体由该字体补齐，避免法语/意语出现方框。
+DEFAULT_LATIN_FONT = r"C:\Windows\Fonts\arial.ttf"
 SIZES = (14, 16)
 
 
@@ -109,7 +112,7 @@ def collect_chars() -> str:
     return "".join(sorted(chars))
 
 
-def gen_font(font: str, size: int, symbols: str) -> Path:
+def gen_font(font: str, latin_font: str, size: int, symbols: str) -> Path:
     out = ROOT / "src" / "ui" / "assets" / f"font_cjk_{size}.c"
     cmd = [
         "node", str(CONV_JS),
@@ -120,6 +123,8 @@ def gen_font(font: str, size: int, symbols: str) -> Path:
         "--lv-include", "lvgl.h",
         "--range", "0x20-0x7F",
         "--symbols", symbols,
+        "--font", latin_font,
+        "--range", "0xA0-0xFF",
         "--no-compress",
         "-o", str(out),
     ]
@@ -130,11 +135,16 @@ def gen_font(font: str, size: int, symbols: str) -> Path:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="生成 LVGL CJK 子集字体")
-    ap.add_argument("--font", default=DEFAULT_FONT, help="ttf/otf 字体源路径")
+    ap.add_argument("--font", default=DEFAULT_FONT, help="ttf/otf 主字体源路径（CJK+ASCII）")
+    ap.add_argument("--font-latin", default=DEFAULT_LATIN_FONT,
+                    help="西文兜底字体源路径（Latin-1 补充区 0xA0-0xFF）")
     args = ap.parse_args()
 
     if not Path(args.font).is_file():
         print(f"字体源不存在: {args.font}", file=sys.stderr)
+        return 1
+    if not Path(args.font_latin).is_file():
+        print(f"西文字体源不存在: {args.font_latin}", file=sys.stderr)
         return 1
     if not CONV_JS.is_file():
         print(f"lv_font_conv 未安装（缺 {CONV_JS}），请先在 tools/fontgen 下 npm install",
@@ -147,7 +157,7 @@ def main() -> int:
     print(f"[scan] {len(symbols)} 个非 ASCII 字符 -> {CHARSET_OUT.relative_to(ROOT)}")
 
     for size in SIZES:
-        gen_font(args.font, size, symbols)
+        gen_font(args.font, args.font_latin, size, symbols)
     print("[done] 字体生成完成，重新编译固件/桌面端即可生效")
     return 0
 

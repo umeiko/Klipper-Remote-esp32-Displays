@@ -44,6 +44,7 @@ static bool             started;            /* 客户端实例已创建 */
 static esp_timer_handle_t reconnect_timer;
 static esp_timer_handle_t klippy_timer;
 static esp_timer_handle_t hb_timer;
+static esp_timer_handle_t reload_timer;
 static int64_t            hb_sent_us;
 static int64_t            last_rx_ms;       /* 最近一次收到任何 WS 帧（含 ping/pong），僵尸检测用 */
 static int              backoff_s = 1;
@@ -465,6 +466,8 @@ static void on_ws_event(void *arg, esp_event_base_t base, int32_t id, void *data
 }
 
 /* ---------- 对外 ---------- */
+static void reload_cb(void *arg);   /* moonraker_reload 的实际工作，esp_timer 上下文 */
+
 static void ensure_timers(void)
 {
     if (!reconnect_timer) {
@@ -479,6 +482,10 @@ static void ensure_timers(void)
         esp_timer_create_args_t a3 = {.callback = heartbeat_cb, .name = "mr_hb"};
         esp_timer_create(&a3, &hb_timer);
         esp_timer_start_periodic(hb_timer, HEARTBEAT_MS * 1000);
+    }
+    if (!reload_timer) {
+        esp_timer_create_args_t a4 = {.callback = reload_cb, .name = "mr_reload"};
+        esp_timer_create(&a4, &reload_timer);
     }
 }
 
@@ -544,9 +551,12 @@ void moonraker_start(void)
     esp_websocket_client_start(ws);
 }
 
-void moonraker_reload(void)
+/* 实际重连逻辑。只能在非 LVGL 上下文跑：destroy_client 会阻塞等 close 握手，
+   post_to_lvgl 要拿 LVGL 锁——若在 LVGL 任务里直接调，锁重入即死锁（点击事件
+   处理正持锁）。所以 moonraker_reload 只做调度，工作挪到 esp_timer 任务里。 */
+static void reload_cb(void *arg)
 {
-    ensure_timers();
+    (void)arg;
     memset(&conf, 0, sizeof(conf));
     conf_valid = settings_load_moonraker(&conf);
     esp_timer_stop(reconnect_timer);
@@ -556,6 +566,13 @@ void moonraker_reload(void)
     state = MOONRAKER_OFFLINE;
     post_to_lvgl(set_online_in_lvgl, (void *)0);
     moonraker_start();
+}
+
+void moonraker_reload(void)
+{
+    ensure_timers();
+    esp_timer_stop(reload_timer);            /* 连点多次只执行最后一次 */
+    esp_timer_start_once(reload_timer, 20000);   /* 20ms 后在 esp_timer 任务执行 */
 }
 
 moonraker_state_t moonraker_state(void)

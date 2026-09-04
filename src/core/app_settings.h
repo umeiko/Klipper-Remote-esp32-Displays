@@ -27,11 +27,23 @@ typedef struct {
     bool     valid;
 } moonraker_conf_t;
 
+/* 多打印机：最多 6 槽。moonraker.conf 新格式：
+ *   active=N
+ *   host_0=... / port_0=7125 / api_key_0=...
+ *   ...（host_1..host_5 同理）
+ * 旧格式（host=/port=/api_key=）读取时自动迁移为槽 0。
+ * settings_load/save_moonraker 操作"当前槽"，调用方无感。 */
+#define PRINTER_SLOTS 6
+
 bool settings_load_wifi(wifi_conf_t *out);
 bool settings_save_wifi(const wifi_conf_t *in);
 
-bool settings_load_moonraker(moonraker_conf_t *out);
-bool settings_save_moonraker(const moonraker_conf_t *in);
+bool settings_load_moonraker(moonraker_conf_t *out);              /* 当前槽 */
+bool settings_save_moonraker(const moonraker_conf_t *in);         /* 当前槽 */
+bool settings_load_moonraker_slot(int slot, moonraker_conf_t *out);
+bool settings_save_moonraker_slot(int slot, const moonraker_conf_t *in);
+int  settings_load_active_printer(void);                          /* 0..PRINTER_SLOTS-1 */
+bool settings_save_active_printer(int slot);
 
 /* 本机偏好（klipperscreen.conf，对齐 KlipperScreen 的偏好文件习惯）。
  * 保存均为按键更新，同一文件里的其他偏好不丢。

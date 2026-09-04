@@ -5,6 +5,7 @@
 #include "../theme.h"
 #include "../lang.h"
 #include "../panel_mgr.h"
+#include "../assets/icons.h"
 #include "app_settings.h"
 #include "bsp.h"
 #include <stdio.h>
@@ -46,9 +47,11 @@ static void open_brightness(lv_event_t *e)
 static void on_lang_select(lv_event_t *e)
 {
     lv_obj_t *dd = lv_event_get_target(e);
-    ui_lang_t want = lv_dropdown_get_selected(dd) == 1 ? UI_LANG_EN : UI_LANG_ZH;
+    uint16_t sel = lv_dropdown_get_selected(dd);
+    if (sel >= ui_lang_count()) return;
+    ui_lang_t want = (ui_lang_t)sel;    /* 下拉顺序 == langs[] 注册表顺序 == 枚举顺序 */
     if (want == ui_lang_get()) return;
-    settings_save_language(want == UI_LANG_EN ? "en" : "zh");
+    settings_save_language(ui_lang_code(want));
     lv_refr_now(NULL);      /* 先把选中态画出来 */
     bsp_fade_out(1000);     /* 当前亮度 1s 渐暗到纯黑 */
     bsp_restart();
@@ -68,17 +71,23 @@ static void on_screen_off_select(lv_event_t *e)
     bsp_set_screen_timeout(so_values[sel]);   /* 立即生效，无需重启 */
 }
 
-/* 带下拉的设置行（语言/自动息屏共用样式） */
+/* 带下拉的设置行（语言/自动息屏共用样式）；icon 非 NULL 时在文字前加小图标 */
 static lv_obj_t *make_dropdown_row(lv_obj_t *scr, const char *key, const char *options,
-                                   int y, int sel, lv_event_cb_t cb)
+                                   int y, int sel, lv_event_cb_t cb, const void *icon)
 {
     lv_obj_t *row = theme_card(scr);
     lv_obj_set_size(row, 304, 38);
     lv_obj_align(row, LV_ALIGN_TOP_MID, 0, y);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);   /* 行内下拉拖动不卷动整页 */
 
+    int text_x = 2;
+    if (icon) {
+        lv_obj_t *ic = theme_img(row, icon, THEME_COL_TEXT_DIM);
+        lv_obj_align(ic, LV_ALIGN_LEFT_MID, 2, 0);
+        text_x = 22;
+    }
     lv_obj_t *k = theme_label(row, key, THEME_FONT_M, THEME_COL_TEXT);
-    lv_obj_align(k, LV_ALIGN_LEFT_MID, 2, 0);
+    lv_obj_align(k, LV_ALIGN_LEFT_MID, text_x, 0);
 
     lv_obj_t *dd = lv_dropdown_create(row);
     lv_dropdown_set_options(dd, options);
@@ -89,11 +98,11 @@ static lv_obj_t *make_dropdown_row(lv_obj_t *scr, const char *key, const char *o
     lv_obj_set_style_text_color(dd, theme_col(THEME_COL_TEXT), 0);
     lv_obj_set_style_bg_color(dd, theme_col(THEME_COL_SURFACE2), 0);
     lv_obj_set_style_border_width(dd, 0, 0);
-    /* 下拉列表：深色底，选中项更深一档；限高 150（列表从下拉框向上展开，
+    /* 下拉列表：深色底，选中项更深一档；限高 120（列表从下拉框向上展开，
        再高顶端会顶出屏幕上沿，顶部选项够不着） */
     lv_obj_t *list = lv_dropdown_get_list(dd);
-    lv_obj_set_height(list, 150);
-    lv_obj_set_style_max_height(list, 150, 0);
+    lv_obj_set_height(list, 120);
+    lv_obj_set_style_max_height(list, 120, 0);
     lv_obj_set_style_text_font(list, THEME_FONT_S, 0);
     lv_obj_set_style_text_color(list, theme_col(THEME_COL_TEXT), 0);
     lv_obj_set_style_bg_color(list, theme_col(THEME_COL_SURFACE), 0);
@@ -133,9 +142,14 @@ static lv_obj_t *create(void)
     make_link_row(scr, "无线网络", "", THEME_TITLEBAR_H + 4, open_wifi);
     make_link_row(scr, "Moonraker 连接", "", THEME_TITLEBAR_H + 43, open_moonraker);
 
-    /* 语言：下拉选择中/英，切换后渐暗重启生效 */
-    make_dropdown_row(scr, "语言", "中文\nEnglish", THEME_TITLEBAR_H + 82,
-                      ui_lang_get() == UI_LANG_EN ? 1 : 0, on_lang_select);
+    /* 语言：下拉选项按注册表动态生成（各语言母语名），切换后渐暗重启生效 */
+    static char lang_opts[128];
+    int lo_len = 0;
+    for (unsigned i = 0; i < ui_lang_count(); i++)
+        lo_len += snprintf(lang_opts + lo_len, sizeof(lang_opts) - lo_len, "%s%s",
+                           i ? "\n" : "", ui_lang_name((ui_lang_t)i));
+    make_dropdown_row(scr, "语言", lang_opts, THEME_TITLEBAR_H + 82,
+                      (int)ui_lang_get(), on_lang_select, &img_globe_16);
 
     /* 背光：行内显示当前亮度，点击进滑杆调节 */
     char br[8];
@@ -152,7 +166,7 @@ static lv_obj_t *create(void)
         if ((uint32_t)cur == so_values[i]) so_sel = (int)i;
     }
     make_dropdown_row(scr, "自动息屏", so_opts, THEME_TITLEBAR_H + 160, so_sel,
-                      on_screen_off_select);
+                      on_screen_off_select, NULL);
 
     make_row(scr, "主题", "Dark", THEME_TITLEBAR_H + 199);
     make_row(scr, "版本", "0.1.0-dev", THEME_TITLEBAR_H + 238);

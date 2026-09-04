@@ -34,6 +34,8 @@ const ICONS = [
   ['link_off',       16, 'link_off'],      // 主菜单状态卡：Moonraker 断连
   ['link',           16, 'link'],          // 主菜单状态卡：已连接
   ['alert_circle',   16, 'alert_circle'],  // 主菜单状态卡：Klipper 异常
+  ['web',            16, 'globe_16'],     // 设置-语言行小地球
+  ['toolchanger',    16, 'swap_16'],      // Moonraker-切换打印机行：双向箭头
 ];
 
 mkdirSync(OUT_PNG, { recursive: true });
