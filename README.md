@@ -22,7 +22,6 @@ The same UI code also compiles as a **desktop simulator** (SDL2, Windows/Linux),
 - **Print jobs** — browse G-code history, print or delete from a detail view, live progress ring with elapsed/remaining time, pause / resume / cancel
 - **Control** — axis jog & homing, extrude/retract with cold-extrusion guard, temperature presets (PLA/PETG/ABS/cooldown), emergency stop & firmware restart with confirmation
 - **Robust link** — WebSocket auto-reconnect, app-level heartbeat with RTT display, zombie-connection detection, Klipper error toasts (e.g. endstop not triggered)
-- **Polished UX** — "Umeko" boot animation, bilingual UI (中文/English) with fade-to-black restart on switch, backlight slider, auto screen-off (15s…1h/never) with touch wake-up, title-bar clock synced from the Moonraker host (pure LAN, no internet needed)
 - **One-time touch calibration** persisted to flash; factory calibration pre-installed for the 2432S028R
 
 ## Hardware
