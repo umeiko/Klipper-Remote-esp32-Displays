@@ -83,6 +83,14 @@ jobs:
             mingw-w64-ucrt-x86_64-SDL2
             zip
 
+      - name: Fetch LVGL v9.3.0 (third_party/lvgl is gitignored)
+        shell: msys2 {0}
+        run: |
+          curl -L -o /tmp/lvgl.tar.gz https://github.com/lvgl/lvgl/archive/refs/tags/v9.3.0.tar.gz
+          tar xzf /tmp/lvgl.tar.gz -C /tmp
+          mkdir -p third_party
+          mv /tmp/lvgl-9.3.0 third_party/lvgl
+
       - name: Build Windows desktop (SDL2)
         shell: msys2 {0}
         run: |
