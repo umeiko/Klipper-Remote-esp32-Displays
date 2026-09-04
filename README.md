@@ -1,8 +1,12 @@
-# Klipper Remote ESP32 Displays
+# KlipperScreen-esp
 
 [![build](https://github.com/umeiko/Klipper-Remote-esp32-Displays/actions/workflows/build.yml/badge.svg)](https://github.com/umeiko/Klipper-Remote-esp32-Displays/actions/workflows/build.yml)
 
 [中文文档](README_zh.md)
+
+<p align="center">
+  <img src="docs/screenshots/main_photo.jpg" alt="Klipper Remote on a CYD 2432S028R" width="720">
+</p>
 
 A touchscreen remote display for **Klipper** 3D printers, talking to **Moonraker** over WiFi — running on cheap **ESP32 CYD (2432S028R)** boards. Think of it as a pocket-sized, wireless KlipperScreen.
 

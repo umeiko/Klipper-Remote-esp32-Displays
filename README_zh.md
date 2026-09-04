@@ -2,6 +2,10 @@
 
 [English README](README.md)
 
+<p align="center">
+  <img src="docs/screenshots/main_photo.jpg" alt="CYD 2432S028R 实机运行效果" width="720">
+</p>
+
 基于 ESP32 CYD 系列开发板的 Klipper 远程触屏显示器（对标 KlipperScreen），通过 WiFi 连接 Moonraker。多后端架构：所有界面/业务代码共享，每个后端（ESP32 各板型、desktop SDL2、未来的 Pico/STM32…）地位平等。
 
 ## 界面实拍
